@@ -1,5 +1,5 @@
 #!/usr/bin/env ruby
 
 lines = ARGF.read.split("\n")
-lists = lines.map(&:split).transpose.map{ _1.map(&:to_i) }
-puts lists.map(&:sort).transpose.map{(_1 - _2).abs}.sum
+left_list, right_list = lines.map(&:split).transpose.map{ _1.map(&:to_i) }
+puts left_list.flat_map { |n| right_list.select{ _1 == n } }.sum
