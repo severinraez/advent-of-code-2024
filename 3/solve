@@ -1,0 +1,36 @@
+#!/usr/bin/env ruby
+
+input = ARGF.read
+
+def parse(t_dont, t_do, factor_1, factor_2)
+  return :dont unless t_dont.nil?
+  return :do unless t_do.nil?
+
+  factor_1.to_i * factor_2.to_i
+end
+
+def filter_enabled(tokens, enabled=true)
+  head, *tail = tokens
+
+  return [] if head.nil?
+
+  case head
+  when :do
+    filter_enabled(tail, true)
+  when :dont
+    filter_enabled(tail, false)
+  else
+    if enabled
+      [head, *filter_enabled(tail, enabled)]
+    else
+      filter_enabled(tail, enabled)
+    end
+  end
+end
+
+pp input
+  .scan(/(don't\(\))|(do\(\))|mul\((\d+),(\d+)\)/)
+  .map { parse(*_1) }
+  .then { filter_enabled(_1) }
+  .sum
+
