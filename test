@@ -1,0 +1,19 @@
+#!/usr/bin/env ruby
+
+day = ARGV.first
+
+puts "Testing solution for day #{day}"
+
+Dir.chdir(__dir__) do
+  got = `cat #{day}/example | #{day}/solve`
+  want = File.read("#{day}/example_solution")
+  if got.chomp == want.chomp
+    puts "OK"
+  else
+    puts "FAILED"
+    puts
+    puts "Got: #{got}"
+    puts "Want: #{want}"
+  end
+end
+
