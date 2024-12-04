@@ -6,9 +6,18 @@ See <https://adventofcode.com/2024>
 
 Save the example and solution to `<day>/example` and `<day>/example_solution` respectively.
 
+Test part 1
+
 ```bash
 day=1
 ./test $day
+```
+
+To test part 2, save the solution to `<day>/example_solution_2`:
+
+```bash
+day=1
+./test $day 2
 ```
 
 ## Solving a day
@@ -22,8 +31,14 @@ cat <<EOF >$day/input
 EOF
 ```
 
-Solve
+Solve part 1
 
 ```bash
 cat $day/input | $day/solve
+```
+
+Solve part 2
+
+```bash
+cat $day/input | $day/solve_2
 ```

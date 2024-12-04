@@ -1,0 +1,28 @@
+#!/usr/bin/env ruby
+
+lines = ARGF.read.split("\n").map{ _1.split('') }
+
+def unflatten_combination(tlbr, trbl)
+  [
+    [tlbr[0], nil, trbl[0]],
+    [nil, tlbr[1], nil],
+    [trbl[2], nil, tlbr[2]],
+  ]
+end
+
+def blocks(lines)
+  lines.each_cons(3).flat_map do |y_lines|
+    y_lines.transpose.each_cons(3).map do |x_lines|
+      x_lines.transpose
+    end
+  end
+end
+
+def compare_block(got, want) = (got.flatten).zip(want.flatten).all? { |got, want| want.nil? || got == want }
+def x_mas?(block, combinations) = combinations.any? { compare_block(block, _1) }
+
+combinations = ['SAM', 'MAS'].repeated_permutation(2).map { unflatten_combination(_1, _2) }
+
+puts blocks(lines)
+  .select { x_mas?(_1, combinations) }
+  .length

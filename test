@@ -1,12 +1,15 @@
 #!/usr/bin/env ruby
 
 day = ARGV.first
+part = ARGV[1] || 1
 
-puts "Testing solution for day #{day}"
+puts "Testing solution for day #{day}, part #{part}"
+
+suffix = day == 1 ? '' : '_2'
 
 Dir.chdir(__dir__) do
-  got = `cat #{day}/example | #{day}/solve`
-  want = File.read("#{day}/example_solution")
+  got = `cat #{day}/example | #{day}/solve#{suffix}`
+  want = File.read("#{day}/example_solution#{suffix}")
   if got.chomp == want.chomp
     puts "OK"
   else
