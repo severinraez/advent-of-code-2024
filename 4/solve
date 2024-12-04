@@ -1,0 +1,46 @@
+#!/usr/bin/env ruby
+
+Vector = Data.define(:x, :y) do
+  def +(other) = self.class.new(x: x + other.x, y: y + other.y)
+end
+
+class CharMap
+  def initialize(lines)
+    @lines = lines
+    @height = lines.length
+    @width = lines.first.length
+  end
+
+  def candidates
+    [*horizontals, *verticals, *diagonals_tlbr, *diagonals_trbl]
+  end
+
+  private
+
+  def at(vector) = lines[vector.y][vector.x]
+
+  def collect_coords(start, delta)
+    return [] unless inside?(start)
+    return [start, *collect_coords(start + delta, delta)]
+  end
+
+  def collect(start, delta) = collect_coords(start, delta).map { at(_1) }
+
+  def inside?(vector) = vector.x >= 0 && vector.x < width && vector.y >= 0 && vector.y < height
+
+  def left_side = collect_coords(Vector.new(0,0), Vector.new(0, 1))
+  def right_side = collect_coords(Vector.new(width-1,0), Vector.new(0, 1))
+  def top_side = collect_coords(Vector.new(0,0), Vector.new(1, 0))
+
+  def horizontals = left_side.map { collect(_1, Vector.new(1, 0)) }
+  def verticals = top_side.map { collect(_1, Vector.new(0, 1)) }
+  def diagonals_tlbr = [*left_side, *top_side].uniq.map { collect(_1, Vector.new(1, 1)) }
+  def diagonals_trbl = [*right_side, *top_side].uniq.map { collect(_1, Vector.new(-1, 1)) }
+
+  attr_reader :lines, :height, :width
+end
+
+def count_hits(line) = line.scan('XMAS').length + line.scan('SAMX').length
+
+lines = ARGF.read.split("\n").map{ _1.split('') }
+puts CharMap.new(lines).candidates.map(&:join).map { count_hits(_1) }.sum
