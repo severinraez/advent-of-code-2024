@@ -1,0 +1,23 @@
+#!/usr/bin/env ruby
+
+def parse_equation(line)
+  test_value, operands = line.split(': ')
+  [test_value.to_i, operands.split(' ').map(&:to_i)]
+end
+
+def valid?(result, operands, test_value)
+  return result == test_value if operands.empty?
+
+  current, *other = operands
+
+  valid?(result + current, other, test_value) ||
+    valid?(result * current, other, test_value) ||
+    valid?(concat(result, current), other, test_value)
+end
+
+def concat(a, b) = "#{a}#{b}".to_i
+
+equations = ARGF.readlines(chomp: true).map { parse_equation(_1) }
+puts equations
+  .select { |test_value, operands| valid?(operands[0], operands[1..], test_value) }
+  .sum { |test_value, _operands| test_value }
