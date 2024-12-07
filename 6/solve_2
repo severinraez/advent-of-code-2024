@@ -1,0 +1,165 @@
+#!/usr/bin/env ruby
+
+Vector = Data.define(:x, :y) do
+  def +(other) = self.class.new(x: x + other.x, y: y + other.y)
+end
+
+GuardState = Data.define(:position, :heading)
+module Headings
+  LEFT = Vector.new(x: -1, y: 0)
+  RIGHT = Vector.new(x: 1, y: 0)
+  UP =  Vector.new(x: 0, y: -1)
+  DOWN = Vector.new(x: 0, y: 1)
+end
+
+class LabMap
+  def initialize(positions)
+    @guard_start, @positions = parse(positions)
+    @height = positions.length
+    @width = positions.first.length
+    @blocked_position = nil
+  end
+
+  def at(position)
+    return :blocked if blocked_position == position
+
+    positions[position.y][position.x]
+  end
+
+  def inside?(position) = position.x >= 0 && position.x < width && position.y >= 0 && position.y < height
+  def mark_blocked(position) = self.blocked_position = position
+
+  def empty_positions(&)
+    positions.each_with_index.flat_map do |x_positions, y|
+      x_positions.each_with_index.filter_map do |state, x|
+        state == :empty ? Vector.new(x:, y:) : nil
+      end
+    end
+  end
+
+  attr_reader :guard_start
+
+  private
+
+  attr_reader :width, :height, :positions
+  attr_accessor :blocked_position
+
+  def parse(positions)
+    guard_state = nil
+    positions = positions.each_with_index.map do |x_positions, y|
+      x_positions.each_with_index.map do |character, x|
+        next :empty if character == '.'
+        next :blocked if character == '#'
+
+        guard_state = GuardState.new(
+          position: Vector.new(x, y),
+          heading: heading(character)
+        )
+        :empty
+      end
+    end
+
+    [guard_state, positions]
+  end
+
+  def heading(character)
+    case character
+    when '<' then Headings::LEFT
+    when '>' then Headings::RIGHT
+    when '^' then Headings::UP
+    when 'V' then Headings::DOWN
+    else
+      raise "What is #{character.inspect}?"
+    end
+  end
+end
+
+class Guard
+  def initialize(state, map)
+    @map = map
+    @past_states = Set.new
+    change_state(state)
+    @looping = false
+  end
+
+  def step
+    return :vanished unless map.inside?(ahead)
+
+    map.at(ahead) == :empty ? move_forward : turn
+    looping ? :looping : :moving
+  end
+
+  def visited_positions = past_states.map(&:position).uniq.count
+
+  private
+
+  attr_reader :map, :past_states
+  attr_accessor :state, :looping
+
+  TURN_CYCLE = [Headings::LEFT, Headings::UP, Headings::RIGHT, Headings::DOWN].freeze
+  private_constant :TURN_CYCLE
+
+  def ahead = state.position + state.heading
+  def move_forward = change_state(state.with(position: ahead))
+
+  def turn
+    next_index = (TURN_CYCLE.index(state.heading) + 1) % TURN_CYCLE.length
+    change_state(state.with(heading: TURN_CYCLE[next_index]))
+  end
+
+  def change_state(new_state)
+    self.state = new_state
+    self.looping = past_states.include?(state)
+    past_states << new_state
+  end
+end
+
+def looping?(map, obstacle_position)
+  guard = Guard.new(map.guard_start, map)
+  map.mark_blocked(obstacle_position)
+
+  loop do
+    case guard.step
+    when :looping
+      return true
+    when :vanished
+      return false
+    end
+  end
+end
+
+def worker(candidates, slice_size, index, positions)
+  from = index * slice_size
+  to = (index * slice_size) + slice_size - 1
+  slice = candidates[from..to]
+  return nil if slice.nil?
+
+  read, write = IO.pipe
+  Process.fork do
+    read.close
+    map = LabMap.new(positions)
+    write.puts(slice.select { looping?(map, _1) }.count)
+    write.close
+  end
+  write.close
+  read
+end
+
+def read_worker_result(pipe)
+  result = pipe.read.to_i
+  pipe.close
+  result
+end
+
+positions = ARGF.readlines(chomp: true).map(&:chars)
+map = LabMap.new(positions)
+candidates = map.empty_positions - [map.guard_start.position]
+worker_count = 20
+slice_size = (candidates.length / worker_count.to_f).ceil
+
+puts worker_count
+  .times
+  .filter_map { worker(candidates, slice_size, _1, positions) }
+  .tap { Process.waitall }
+  .map { read_worker_result(_1) }
+  .sum
