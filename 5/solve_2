@@ -1,0 +1,54 @@
+#!/usr/bin/env ruby
+
+def valid?(pages_after, must_come_before, pages_before = [])
+  return true if pages_after.empty?
+
+  current, *after = pages_after
+  return false if rule_broken?(current, must_come_before, pages_before)
+
+  valid?(after, must_come_before, [*pages_before, current])
+end
+
+def rule_broken?(page, must_come_before, pages_before)
+  unusable = must_come_before[page] || []
+  pages_before.intersect?(unusable)
+end
+
+def fix(pages, must_come_before, result = [])
+  return result if pages.empty?
+
+  current, *after = pages
+  fix(
+    after,
+    must_come_before,
+    insert(result, must_come_before, current)
+  )
+end
+
+def insert(pages, must_come_before, page)
+  (0..(pages.length)).each do |remove|
+    index = -(remove + 1)
+    next if rule_broken?(page, must_come_before, pages[..index])
+
+    return pages.dup.insert(index, page)
+  end
+end
+
+def middle(array) = array[(array.length-1)/2]
+
+lines = ARGF.readlines(chomp: true)
+rules, (_spacer, *updates) = lines.partition { _1.include?("|") }
+
+must_come_before = rules
+  .map { _1.split('|') }
+  .group_by { |before, _after| before }
+  .transform_values { _1.map { |_before, after| after } }
+
+invalid = updates
+  .map { _1.split(',') }
+  .reject { valid?(_1, must_come_before) }
+
+puts invalid
+  .map { fix(_1, must_come_before) }
+  .map { middle(_1).to_i }
+  .sum
