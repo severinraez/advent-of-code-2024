@@ -1,0 +1,106 @@
+#!/usr/bin/env ruby
+
+positions = ARGF.readlines(chomp: true).map(&:chars)
+
+Vector = Data.define(:x, :y) do
+  def +(other) = self.class.new(x: x + other.x, y: y + other.y)
+end
+
+GuardState = Data.define(:position, :heading)
+module Headings
+  LEFT = Vector.new(x: -1, y: 0)
+  RIGHT = Vector.new(x: 1, y: 0)
+  UP =  Vector.new(x: 0, y: -1)
+  DOWN = Vector.new(x: 0, y: 1)
+end
+
+class LabMap
+  def initialize(positions)
+    @guard_start, @positions = parse(positions)
+    @height = positions.length
+    @width = positions.first.length
+  end
+
+  def at(position) = positions[position.y][position.x]
+  def inside?(position) = position.x >= 0 && position.x < width && position.y >= 0 && position.y < height
+
+  attr_reader :guard_start
+
+  private
+
+  attr_reader :width, :height, :positions
+
+  def parse(positions)
+    guard_state = nil
+    positions = positions.each_with_index.map do |x_positions, y|
+      x_positions.each_with_index.map do |character, x|
+        next :empty if character == '.'
+        next :blocked if character == '#'
+
+        guard_state = GuardState.new(
+          position: Vector.new(x, y),
+          heading: heading(character)
+        )
+        :empty
+      end
+    end
+
+    [guard_state, positions]
+  end
+
+  def heading(character)
+    case character
+    when '<' then Headings::LEFT
+    when '>' then Headings::RIGHT
+    when '^' then Headings::UP
+    when 'V' then Headings::DOWN
+    else
+      raise "What is #{character.inspect}?"
+    end
+  end
+end
+
+class Guard
+  def initialize(state, map)
+    @state = state
+    @map = map
+    @past_states = [state]
+  end
+
+  def step
+    return false unless map.inside?(ahead)
+
+    map.at(ahead) == :empty ? move_forward : turn
+    true
+  end
+
+  def visited_positions = past_states.map(&:position).uniq.count
+
+  private
+
+  attr_reader :map, :past_states
+  attr_accessor :state
+
+  TURN_CYCLE = [Headings::LEFT, Headings::UP, Headings::RIGHT, Headings::DOWN].freeze
+  private_constant :TURN_CYCLE
+
+  def ahead = state.position + state.heading
+  def move_forward = change_state(state.with(position: ahead))
+
+  def turn
+    next_index = (TURN_CYCLE.index(state.heading) + 1) % TURN_CYCLE.length
+    change_state(state.with(heading: TURN_CYCLE[next_index]))
+  end
+
+  def change_state(new_state)
+    self.state = new_state
+    past_states << new_state
+  end
+end
+
+map = LabMap.new(positions)
+guard = Guard.new(map.guard_start, map)
+
+next while guard.step
+
+puts guard.visited_positions
