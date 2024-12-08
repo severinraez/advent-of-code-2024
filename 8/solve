@@ -1,0 +1,52 @@
+#!/usr/bin/env ruby
+
+Vector = Data.define(:x, :y) do
+  def +(other) = self.class.new(x: x + other.x, y: y + other.y)
+  def -(other) = self.class.new(x: x - other.x, y: y - other.y)
+end
+
+Antenna = Data.define(:type, :position)
+
+class AntennaMap
+  attr_reader :antennas
+
+  def initialize(positions)
+    @antennas = parse(positions)
+    @height = positions.length
+    @width = positions.first.length
+  end
+
+  def inside?(position) = position.x >= 0 && position.x < width && position.y >= 0 && position.y < height
+
+  private
+
+  attr_reader :width, :height
+
+  def parse(positions)
+    positions.each_with_index.flat_map do |x_positions, y|
+      x_positions.each_with_index.filter_map do |character, x|
+        next if character == '.'
+
+        Antenna.new(type: character, position: Vector.new(x:, y:))
+      end
+    end
+  end
+end
+
+def antinodes(position_a, position_b)
+  distance = position_b - position_a
+  [position_b + distance, position_a - distance]
+end
+
+positions = ARGF.readlines(chomp: true).map(&:chars)
+map = AntennaMap.new(positions)
+
+puts map
+  .antennas
+  .group_by(&:type)
+  .values
+  .map { |antennas_of_type| antennas_of_type.map(&:position).combination(2) }
+  .flat_map { |combinations| combinations.flat_map { antinodes(*_1) } }
+  .select { map.inside?(_1) }
+  .uniq
+  .count
