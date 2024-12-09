@@ -1,0 +1,31 @@
+#!/usr/bin/env ruby
+
+def blocks(disk_map, file_id = 0, file = true)
+  return [] if disk_map.empty?
+
+  first, *rest = disk_map
+  if file
+    ([file_id] * first) + blocks(rest, file_id + 1, !file)
+  else
+    ([:empty] * first) + blocks(rest, file_id, !file)
+  end
+end
+
+def compact(block_list)
+  first, *middle, last = block_list
+  return first == :empty ? [] : [first] if last.nil?
+  return compact([first, *middle]) if last == :empty
+
+  if first == :empty
+    [last, *compact(middle)]
+  else
+    [first, *compact([*middle, last])]
+  end
+end
+
+def checksum(block_list)
+  block_list.each_with_index.map { |file_id, index| file_id * index }.sum
+end
+
+disk_map = ARGF.read.chomp.chars.map(&:to_i)
+puts checksum(compact(blocks(disk_map)))
