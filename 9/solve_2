@@ -1,0 +1,25 @@
+#!/usr/bin/env ruby
+
+FileData = Data.define(:id, :blocks)
+Free = Data.define(:blocks)
+
+def blocks(disk_map)
+  file_id = 0
+  disk_map.each_with_index.flat_map do |count, index|
+    file = index.even?
+    result = file ? FileData.new(id: file_id, blocks: count) : Free.new(blocks: count)
+    file_id += 1 if file
+    result
+  end
+end
+
+def compact!(blocks)
+end
+
+def checksum(block_list)
+  block_list.each_with_index.map { |file_id, index| file_id * index }.sum
+end
+
+disk_map = ARGF.read.chomp.chars.map(&:to_i)
+pp blocks(disk_map)
+puts checksum(compact!(blocks(disk_map)))
