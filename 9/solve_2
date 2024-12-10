@@ -53,7 +53,13 @@ def compact(head, tail)
   next_file_id = file_cursor.id
 
   until next_file_id.zero?
-    file_cursor = file_cursor.previous while file_cursor.id != next_file_id
+    file_cursor = file_cursor.previous while file_cursor.id != next_file_id && space_cursor != file_cursor
+
+    if file_cursor == space_cursor && space_cursor.free_after < file_cursor.size
+      next_file_id = 0
+      next
+    end
+
     next_file_id -= 1
     space_cursor = space_cursor.following while space_cursor.free_after.zero? && space_cursor != file_cursor
     target = space_cursor
