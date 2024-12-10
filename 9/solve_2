@@ -1,25 +1,89 @@
 #!/usr/bin/env ruby
 
-FileData = Data.define(:id, :blocks)
-Free = Data.define(:blocks)
-
-def blocks(disk_map)
-  file_id = 0
-  disk_map.each_with_index.flat_map do |count, index|
-    file = index.even?
-    result = file ? FileData.new(id: file_id, blocks: count) : Free.new(blocks: count)
-    file_id += 1 if file
-    result
+class FileEntry
+  def initialize(id, size, free_after, previous)
+    @id = id
+    @size = size
+    @free_after = free_after
+    @previous = previous
+    previous&.following = self
   end
+
+  def move_after(file_entry)
+    following&.previous = previous
+    previous&.following = following
+    previous.free_after += size + free_after
+
+    self.following = file_entry.following
+    following&.previous = self
+    self.previous = file_entry
+    previous.following = self
+    self.free_after = previous.free_after - size
+    previous.free_after = 0
+  end
+
+  attr_reader :previous, :following, :id, :size, :free_after
+
+  def to_s
+    (id.to_s * size) + ('.' * free_after) + (following&.to_s || '')
+  end
+
+  def inspect
+    { id:, free_after:, size:, previous_id: previous&.id, following_id: following&.id }
+  end
+
+  protected
+
+  attr_writer :following, :previous, :free_after
 end
 
-def compact!(blocks)
+def entries(disk_map)
+  tail = nil
+  head = nil
+  disk_map.each_slice(2).with_index do |(size, free_after), id|
+    tail = FileEntry.new(id, size, free_after.to_i, tail)
+    head ||= tail
+  end
+  [head, tail]
 end
 
-def checksum(block_list)
-  block_list.each_with_index.map { |file_id, index| file_id * index }.sum
+def compact(head, tail)
+  space_cursor = head
+  file_cursor = tail
+  next_file_id = file_cursor.id
+
+  until next_file_id.zero?
+    file_cursor = file_cursor.previous while file_cursor.id != next_file_id
+    next_file_id -= 1
+    space_cursor = space_cursor.following while space_cursor.free_after.zero? && space_cursor != file_cursor
+    target = space_cursor
+    target = target.following while target.free_after < file_cursor.size && target != file_cursor
+
+    next if target == file_cursor
+
+    moved_file = file_cursor
+    file_cursor = file_cursor.previous
+    moved_file.move_after(target)
+  end
+
+  head
+end
+
+def checksum(head)
+  index = 0
+  sum = 0
+  cursor = head
+  until cursor.nil?
+    cursor.size.times do
+      sum += cursor.id * index
+      index += 1
+    end
+    index += cursor.free_after
+    cursor = cursor.following
+  end
+  sum
 end
 
 disk_map = ARGF.read.chomp.chars.map(&:to_i)
-pp blocks(disk_map)
-puts checksum(compact!(blocks(disk_map)))
+head = compact(*entries(disk_map))
+puts checksum(head)
