@@ -1,0 +1,20 @@
+#!/usr/bin/env ruby
+
+stones = ARGF.read.split.map(&:to_i)
+
+def blink(stone)
+  return [1] if stone.zero?
+
+  string = stone.to_s
+  return [string[0...string.length / 2], string[string.length / 2..]].map(&:to_i) if string.length.even?
+
+  [stone * 2024]
+end
+
+def blink_n(stones, n)
+  return stones if n.zero?
+
+  blink_n(stones.flat_map { blink(_1) }, n - 1)
+end
+
+puts blink_n(stones, 25).count
