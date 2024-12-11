@@ -43,7 +43,7 @@ def destinations(positions, map, height = 0)
       .select { map.height_at(_1) == next_height }
   end
 
-  destinations(next_positions.uniq, map, next_height)
+  destinations(next_positions, map, next_height)
 end
 
 lines = ARGF.readlines(chomp: true).map { _1.chars.map(&:to_i) }
