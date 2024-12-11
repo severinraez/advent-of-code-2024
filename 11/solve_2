@@ -1,0 +1,45 @@
+#!/usr/bin/env ruby
+
+class StoneCount
+  def initialize(stones)
+    @counts = {}
+    stones.each { add_stone(_1) }
+  end
+
+  def add_stone(number, count: 1)
+    @counts[number] ||= 0
+    @counts[number] += count
+  end
+
+  def count = @counts.values.sum
+
+  def inspect = @counts
+
+  def blink
+    result = StoneCount.new([])
+    @counts.each do |number, count|
+      blink_one(number).each { result.add_stone(_1, count:) }
+    end
+    result
+  end
+
+  private
+
+  def blink_one(stone)
+    return [1] if stone.zero?
+
+    string = stone.to_s
+    return [string[0...string.length / 2], string[string.length / 2..]].map(&:to_i) if string.length.even?
+
+    [stone * 2024]
+  end
+end
+
+def blink_n(count, n)
+  return count if n.zero?
+
+  blink_n(count.blink, n - 1)
+end
+
+stones = ARGF.read.split.map(&:to_i)
+puts blink_n(StoneCount.new(stones), 75).count
