@@ -1,0 +1,64 @@
+#!/usr/bin/env ruby
+
+Vector = Data.define(:x, :y) do
+  def +(other) = self.class.new(x: x + other.x, y: y + other.y)
+  def neighbours = [with(x: x - 1), with(y: y - 1), with(x: x + 1), with(y: y + 1)]
+end
+
+Region = Data.define(:positions) do
+  def area = positions.length
+
+  def perimeter
+    positions.sum do |position|
+      position.neighbours.reject { positions.include?(_1) }.length
+    end
+  end
+end
+
+class GardenMap
+  def initialize(lines)
+    @lines = lines
+    @height = lines.length
+    @width = lines.first.length
+  end
+
+  def regions = @regions ||= find_regions
+
+  private
+
+  attr_reader :lines, :height, :width
+
+  def at(vector)
+    return nil unless inside?(vector)
+
+    lines[vector.y][vector.x]
+  end
+
+  def find_regions
+    (0...height).flat_map do |y|
+      (0...width).filter_map do |x|
+        position = Vector.new(x, y)
+        crop = at(position)
+        next if crop == :assigned
+
+        Region.new(positions: flood(position, crop).sort_by { [_1.x, _1.y] })
+      end
+    end
+  end
+
+  def inside?(vector) = vector.x >= 0 && vector.x < width && vector.y >= 0 && vector.y < height
+
+  def mark_assigned(vector) = lines[vector.y][vector.x] = :assigned
+
+  def flood(start, crop)
+    return [] unless at(start) == crop
+
+    mark_assigned(start)
+
+    [start] + start.neighbours.flat_map { flood(_1, crop) }
+  end
+end
+
+lines = ARGF.readlines(chomp: true).map(&:chars)
+map = GardenMap.new(lines)
+puts map.regions.sum { _1.area * _1.perimeter }
