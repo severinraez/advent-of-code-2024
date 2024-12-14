@@ -1,0 +1,105 @@
+#!/usr/bin/env ruby
+
+require 'sorted_set'
+require 'bigdecimal/util'
+
+Vector = Data.define(:x, :y) do
+  def +(other) = self.class.new(x: x + other.x, y: y + other.y)
+  def -(other) = self.class.new(x: x - other.x, y: y - other.y)
+end
+
+class Machine
+  attr_reader :button_a, :button_b, :prize
+
+  def initialize(button_a_distance, button_b_distance, prize)
+    @button_a = Button.new(tokens: 3, claw_distance: button_a_distance)
+    @button_b = Button.new(tokens: 1, claw_distance: button_b_distance)
+    @prize = prize
+  end
+end
+
+Button = Data.define(:tokens, :claw_distance)
+
+class BestSolution
+  def initialize(machine)
+    @machine = machine
+  end
+
+  def tokens
+    [[machine.button_a, machine.button_b], [machine.button_b, machine.button_a]]
+      .map do |buttons|
+        steps = solution(*buttons.map(&:claw_distance))
+        next if steps.nil?
+
+        steps.zip(buttons).sum { |count, button| count * button.tokens }
+      end.compact.min
+  end
+
+  private
+
+  attr_reader :machine
+
+  def solution(first_direction, second_direction)
+    prize = machine.prize
+
+    # Find intersection point.
+    #
+    # As y = a * x + b,
+    # => prize_y = a1 * prize_x + b1
+    # => prize_y = second_direction.y / second_direction.x * prize_x + b1
+    # => -b1 = second_direction.y / second_direction.x * prize_x - prize_y
+    # => b1 = -(second_direction.y / second_direction.x * prize_x - prize_y)
+    a1 = second_direction.y / second_direction.x.to_d
+    b1 = -((a1 * prize.x) - prize.y)
+
+    a2 = first_direction.y / first_direction.x.to_d
+    # b2 = 0, as Claw is at 0/0
+
+    # a1 * x + b1 = a2 * x + b2
+    # a1 * x + b1 = a2 * x       # b2 = 0
+    # a1 * x + b1 - a2 * x = 0
+    # x * (a1 - a2) + b1 = 0
+    # x = -b1 / (a1 - a2)
+    x = -b1 / (a1 - a2).to_d
+    y = a2 * x
+
+    # Is the intersection point reachable by taking whole
+    # steps of first_direction?
+    return nil unless evenly_divisible?(x, first_direction.x)
+    return nil unless evenly_divisible?(y, first_direction.y)
+
+    intersection = Vector.new(x, y)
+    second_part = prize - intersection
+
+    # Is the prize point reachable by taking whole
+    # steps of second_direction?
+    return nil unless evenly_divisible?(second_part.x, second_direction.x)
+    return nil unless evenly_divisible?(second_part.y, second_direction.y)
+
+    [intersection.x / first_direction.x, second_part.x / second_direction.x]
+      .map(&:round)
+  end
+
+  def evenly_divisible?(dividend, divisor)
+    left = dividend % divisor
+    epsilon = 0.0000001
+
+    left < epsilon || left > divisor - epsilon
+  end
+end
+
+def parse_button(button) = /X\+(\d+), Y\+(\d+)/.match(button).then { [_1[1], _1[2]] }.map(&:to_i)
+def parse_prize(button) = /X=(\d+), Y=(\d+)/.match(button).then { [_1[1], _1[2]] }.map(&:to_i)
+
+lines = ARGF.readlines(chomp: true)
+conversion_error = Vector.new(10_000_000_000_000.to_d, 10_000_000_000_000.to_d)
+machines = lines.each_slice(4).map do |button_a, button_b, prize, _spacer|
+  [parse_button(button_a), parse_button(button_b), parse_prize(prize)]
+    .map { Vector.new(*_1.map(&:to_d)) }
+    .then { |b_a, b_b, p| [b_a, b_b, p + conversion_error] }
+    .then { Machine.new(*_1) }
+end
+
+puts machines
+  .filter_map { BestSolution.new(_1).tokens }
+  .sum
