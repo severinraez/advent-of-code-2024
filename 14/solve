@@ -1,0 +1,77 @@
+#!/usr/bin/env ruby
+
+def read_config(lines)
+  lines.map do |line|
+    line.split.each_with_object({}) do |assignment, memo|
+      key, values = assignment.split('=')
+      memo[key] = values.split(',').map(&:to_i)
+    end
+  end
+end
+
+Vector = Data.define(:x, :y) do
+  def +(other) = self.class.new(x: x + other.x, y: y + other.y)
+  def -(other) = self.class.new(x: x - other.x, y: y - other.y)
+  def *(other) = self.class.new(x: x * other, y: y * other)
+end
+
+class DonutMap
+  def initialize(dimensions)
+    @dimensions = dimensions
+  end
+
+  def transpose(coords, amount)
+    unwrapped = coords + amount
+    Vector.new(unwrapped.x % dimensions.x, unwrapped.y % dimensions.y)
+  end
+
+  def quadrant(coords)
+    return nil if coords.x == middle.x || coords.y == middle.y
+
+    result = 0
+    result += 1 if coords.x > middle.x
+    result += 2 if coords.y > middle.y
+    result
+  end
+
+  private
+
+  attr_reader :dimensions
+
+  def middle = @middle ||= (dimensions - Vector.new(1, 1)) * 0.5
+end
+
+class Robot
+  attr_reader :position
+
+  def initialize(position, speed, map)
+    @position = position
+    @speed = speed
+    @map = map
+  end
+
+  def step = @position = @map.transpose(@position, @speed)
+end
+
+def make_robot(robot_start, map)
+  Robot.new(
+    Vector.new(*robot_start.fetch('p')),
+    Vector.new(*robot_start.fetch('v')),
+    map
+  )
+end
+
+dimensions, *robot_starts = read_config(ARGF.readlines(chomp: true))
+
+map = DonutMap.new(Vector.new(dimensions.fetch('w').first, dimensions.fetch('h').first))
+robots = robot_starts.map { make_robot(_1, map) }
+
+seconds = 100
+seconds.times { robots.each(&:step) }
+
+puts robots
+  .group_by { map.quadrant(_1.position) }
+  .to_a
+  .filter_map { |q, r| q.nil? ? nil : r }
+  .map(&:length)
+  .reduce(&:*)
