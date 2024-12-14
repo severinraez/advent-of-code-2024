@@ -1,0 +1,154 @@
+#!/usr/bin/env ruby
+
+require 'chunky_png'
+
+def read_config(lines)
+  lines.map do |line|
+    line.split.each_with_object({}) do |assignment, memo|
+      key, values = assignment.split('=')
+      memo[key] = values.split(',').map(&:to_i)
+    end
+  end
+end
+
+Vector = Data.define(:x, :y) do
+  def +(other) = self.class.new(x: x + other.x, y: y + other.y)
+  def -(other) = self.class.new(x: x - other.x, y: y - other.y)
+  def *(other) = self.class.new(x: x * other, y: y * other)
+end
+
+class DonutMap
+  attr_reader :dimensions
+
+  def initialize(dimensions)
+    @dimensions = dimensions
+  end
+
+  def transpose(coords, amount)
+    unwrapped = coords + amount
+    Vector.new(unwrapped.x % dimensions.x, unwrapped.y % dimensions.y)
+  end
+
+  def quadrant(coords)
+    return nil if coords.x == middle.x || coords.y == middle.y
+
+    result = 0
+    result += 1 if coords.x > middle.x
+    result += 2 if coords.y > middle.y
+    result
+  end
+
+  private
+
+  def middle = @middle ||= (dimensions - Vector.new(1, 1)) * 0.5
+end
+
+class Robot
+  attr_reader :position
+
+  def initialize(position, speed, map)
+    @position = position
+    @speed = speed
+    @map = map
+  end
+
+  def step = @position = @map.transpose(@position, @speed)
+end
+
+def make_robot(robot_start, map)
+  Robot.new(
+    Vector.new(*robot_start.fetch('p')),
+    Vector.new(*robot_start.fetch('v')),
+    map
+  )
+end
+
+def render_map(robots, map)
+  at_coords = robots.group_by(&:position).transform_values(&:length)
+
+  map.dimensions.y.times do |y|
+    map.dimensions.x.times do |x|
+      count = at_coords[Vector.new(x, y)]
+      print count.nil? ? ' ' : [count, 9].min
+    end
+    print "\n"
+  end
+end
+
+def render_map_png(robots, map, step)
+  png = ChunkyPNG::Image.new(map.dimensions.x, map.dimensions.y, ChunkyPNG::Color::WHITE)
+  at_coords = robots.group_by(&:position).transform_values(&:length)
+  map.dimensions.y.times do |y|
+    map.dimensions.x.times do |x|
+      count = at_coords[Vector.new(x, y)]
+      next if count.nil?
+
+      png[x, y] = ChunkyPNG::Color::BLACK
+    end
+  end
+  png.save("#{__dir__}/renders/map_#{step}.png")
+end
+
+def clear_screen = puts "\e[H\e[2J"
+
+def render(robots, map, seconds_elapsed)
+  puts "After #{seconds_elapsed} seconds"
+  puts
+  # render_map(robots, map)
+  render_map_png(robots, map, seconds_elapsed)
+end
+
+def spreadedness(robots)
+  x, y = robots
+         .map { [_1.position.x, _1.position.y] }
+         .transpose
+
+  [variance(x), variance(y)].min
+end
+
+def variance(values)
+  mean = values.sum(0.0) / values.size
+  sum = values.sum { (_1 - mean)**2 }
+  sum / (values.size - 1)
+end
+
+def connectedness(robots)
+  positions = robots.map(&:position)
+  used = Set.new(positions)
+
+  neighbour_deltas =
+    [0, 1, -1]
+    .repeated_permutation(2)
+    .to_a
+    .then { _1 - [[0, 0]] }
+    .map { Vector.new(*_1) }
+
+  positions.filter_map do |position|
+    neighbour_deltas.count do |delta|
+      used.include?(position + delta)
+    end
+  end.sum
+end
+
+dimensions, *robot_starts = read_config(ARGF.readlines(chomp: true))
+map = DonutMap.new(Vector.new(dimensions.fetch('w').first, dimensions.fetch('h').first))
+robots = robot_starts.map { make_robot(_1, map) }
+
+seconds = 8_000
+render_from = 4_000
+seconds.times do |i|
+  seconds_elapsed = i + 1
+  robots.each(&:step)
+
+  next if i < render_from
+
+  spreadedness = spreadedness(robots)
+  connectedness = connectedness(robots)
+  next unless connectedness > 1000
+
+  puts "#{seconds_elapsed}: #{{ connectedness:, spreadedness: }}"
+  # render(robots, map, seconds_elapsed)
+end
+
+# To arrange the renders in a grid:
+# montage 14/renders/*.png -geometry +10+10 14/renders_montage.png

@@ -8,15 +8,14 @@ puts "Testing solution for day #{day}, part #{part}"
 suffix = part == 1 ? '' : '_2'
 
 Dir.chdir(__dir__) do
-  got = `cat #{day}/example | #{day}/solve#{suffix}`
+  got = `cat #{day}/example | bundle exec #{day}/solve#{suffix}`
   want = File.read("#{day}/example_solution#{suffix}")
   if got.chomp == want.chomp
-    puts "OK"
+    puts 'OK'
   else
-    puts "FAILED"
+    puts 'FAILED'
     puts
     puts "Got: #{got}"
     puts "Want: #{want}"
   end
 end
-
