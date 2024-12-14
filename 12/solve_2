@@ -1,0 +1,102 @@
+#!/usr/bin/env ruby
+
+Vector = Data.define(:x, :y) do
+  def +(other) = self.class.new(x: x + other.x, y: y + other.y)
+  def *(other) = self.class.new(x: x * other, y: y * other)
+  def neighbours = [with(x: x - 1), with(y: y - 1), with(x: x + 1), with(y: y + 1)]
+end
+
+Border = Data.define(:inside, :outside) do
+  def neighbour_a = translate(tangent)
+  def neighbour_b = translate(tangent * -1)
+
+  private
+
+  def tangent = inside.x == outside.x ? Vector.new(1, 0) : Vector.new(0, 1)
+  def translate(delta) = self.class.new(inside: inside + delta, outside: outside + delta)
+end
+
+Region = Data.define(:positions) do
+  def area = positions.length
+
+  def sides
+    borders = Set.new(border_list)
+    result = 0
+
+    until borders.empty?
+      border = borders.first
+      borders.delete(borders.first)
+      trace_border(border, borders, :neighbour_a)
+      trace_border(border, borders, :neighbour_b)
+      result += 1
+    end
+
+    result
+  end
+
+  private
+
+  def border_list
+    positions.flat_map do |position|
+      position
+        .neighbours
+        .reject { positions.include?(_1) }
+        .map { Border.new(inside: position, outside: _1) }
+    end
+  end
+
+  def trace_border(border, borders, direction)
+    neighbour = border.public_send(direction)
+    return unless borders.include?(neighbour)
+
+    borders.delete(neighbour)
+    trace_border(neighbour, borders, direction)
+  end
+end
+
+class GardenMap
+  def initialize(lines)
+    @lines = lines
+    @height = lines.length
+    @width = lines.first.length
+  end
+
+  def regions = @regions ||= find_regions
+
+  private
+
+  attr_reader :lines, :height, :width
+
+  def at(vector)
+    return nil unless inside?(vector)
+
+    lines[vector.y][vector.x]
+  end
+
+  def find_regions
+    (0...height).flat_map do |y|
+      (0...width).filter_map do |x|
+        position = Vector.new(x, y)
+        crop = at(position)
+        next if crop == :assigned
+
+        Region.new(positions: flood(position, crop).sort_by { [_1.x, _1.y] })
+      end
+    end
+  end
+
+  def inside?(vector) = vector.x >= 0 && vector.x < width && vector.y >= 0 && vector.y < height
+  def mark_assigned(vector) = lines[vector.y][vector.x] = :assigned
+
+  def flood(start, crop)
+    return [] unless at(start) == crop
+
+    mark_assigned(start)
+
+    [start] + start.neighbours.flat_map { flood(_1, crop) }
+  end
+end
+
+lines = ARGF.readlines(chomp: true).map(&:chars)
+map = GardenMap.new(lines)
+puts map.regions.sum { _1.area * _1.sides }
