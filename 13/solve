@@ -1,0 +1,99 @@
+#!/usr/bin/env ruby
+
+require 'sorted_set'
+
+Vector = Data.define(:x, :y) do
+  def +(other) = self.class.new(x: x + other.x, y: y + other.y)
+  def -(other) = self.class.new(x: x - other.x, y: y - other.y)
+end
+
+Machine = Data.define(:button_a, :button_b, :prize) do
+  def press_a = ButtonPress.new(tokens: 3, claw_distance: button_a)
+  def press_b = ButtonPress.new(tokens: 1, claw_distance: button_b)
+end
+
+ButtonPress = Data.define(:tokens, :claw_distance)
+
+class Game
+  def initialize(machine, presses: 0, tokens: 0, claw_distance: Vector.new(0, 0))
+    @machine = machine
+    @tokens = tokens
+    @presses = presses
+    @claw_distance = claw_distance
+  end
+
+  def press_a = press(:press_a)
+  def press_b = press(:press_b)
+
+  def over?
+    return true if presses > 200
+
+    claw_distance.x > machine.prize.x || claw_distance.y > machine.prize.y
+  end
+
+  def won? = claw_distance == machine.prize
+  def <=>(other) = comparable <=> other.comparable
+
+  attr_reader :tokens
+
+  protected
+
+  def comparable = [tokens, prize_distance.x + prize_distance.y]
+
+  private
+
+  def prize_distance = machine.prize - claw_distance
+
+  def press(action)
+    result = machine.public_send(action)
+    self.class.new(
+      machine,
+      tokens: tokens + result.tokens,
+      claw_distance: claw_distance + result.claw_distance,
+      presses: presses + 1
+    )
+  end
+
+  attr_reader :claw_distance, :machine, :presses
+end
+
+class BestSolution
+  def initialize(machine)
+    @games = SortedSet.new([Game.new(machine)])
+  end
+
+  def tokens = best_solution&.tokens
+
+  private
+
+  attr_reader :games
+
+  def best_solution
+    until games.empty?
+      game = games.first
+      return game if game.won?
+
+      games.delete(game)
+      next if game.over?
+
+      games.add(game.press_a)
+      games.add(game.press_b)
+    end
+
+    nil
+  end
+end
+
+def parse_button(button) = /X\+(\d+), Y\+(\d+)/.match(button).then { [_1[1], _1[2]] }.map(&:to_i)
+def parse_prize(button) = /X=(\d+), Y=(\d+)/.match(button).then { [_1[1], _1[2]] }.map(&:to_i)
+
+lines = ARGF.readlines(chomp: true)
+machines = lines.each_slice(4).map do |button_a, button_b, prize, _spacer|
+  [parse_button(button_a), parse_button(button_b), parse_prize(prize)]
+    .map { Vector.new(*_1) }
+    .then { Machine.new(*_1) }
+end
+
+pp machines
+  .filter_map { BestSolution.new(_1).tokens }
+  .sum
