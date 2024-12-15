@@ -1,0 +1,112 @@
+#!/usr/bin/env ruby
+
+Vector = Data.define(:x, :y) do
+  def +(other) = self.class.new(x: x + other.x, y: y + other.y)
+  def neighbours = [with(x: x - 1), with(y: y - 1), with(x: x + 1), with(y: y + 1)]
+end
+
+class WarehouseMap
+  def initialize(lines)
+    @positions = parse(lines)
+    @height = positions.length
+    @width = positions.first.length
+  end
+
+  def at(vector)
+    return :outside unless inside?(vector)
+
+    positions[vector.y][vector.x]
+  end
+
+  def move(from, to)
+    positions[to.y][to.x] = at(from)
+    positions[from.y][from.x] = :empty
+  end
+
+  def box_positions
+    positions.each_with_index.flat_map do |x_positions, y|
+      x_positions.each_with_index.filter_map do |contents, x|
+        contents == :box ? Vector.new(x, y) : nil
+      end
+    end
+  end
+
+  attr_reader :robot_start
+
+  private
+
+  attr_reader :positions, :height, :width
+
+  def parse(lines)
+    lines.each_with_index.map do |line, y|
+      line.each_with_index.map do |char, x|
+        case char
+        when '.'
+          :empty
+        when '#'
+          :wall
+        when 'O'
+          :box
+        when '@'
+          @robot_start = Vector.new(x, y)
+          :empty
+        end
+      end
+    end
+  end
+
+  def inside?(vector) = vector.x >= 0 && vector.x < width && vector.y >= 0 && vector.y < height
+end
+
+class Robot
+  def initialize(position, map)
+    @position = position
+    @map = map
+  end
+
+  def move(direction)
+    return unless perform_move(position + direction, direction)
+
+    self.position += direction
+  end
+
+  private
+
+  attr_reader :map
+  attr_accessor :position
+
+  def perform_move(position, direction)
+    case map.at(position)
+    when :wall, :outside
+      false
+    when :empty
+      true
+    when :box
+      return false unless perform_move(position + direction, direction)
+
+      map.move(position, position + direction)
+      true
+    end
+  end
+end
+
+MOVES = {
+  '<' => Vector.new(x: -1, y: 0),
+  '>' => Vector.new(x: 1, y: 0),
+  '^' => Vector.new(x: 0, y: -1),
+  'v' => Vector.new(x: 0, y: 1)
+}.freeze
+
+map_lines, (_spacer, *move_lines) =
+  ARGF
+  .readlines(chomp: true)
+  .partition { _1.start_with?('#') }
+
+map = WarehouseMap.new(map_lines.map(&:chars))
+robot = Robot.new(map.robot_start, map)
+move_lines.join.chars.map { MOVES.fetch(_1) }.each { robot.move(_1) }
+
+puts map
+  .box_positions
+  .map { _1.x + (_1.y * 100) }
+  .sum
