@@ -1,0 +1,125 @@
+#!/usr/bin/env ruby
+
+Vector = Data.define(:x, :y) do
+  def +(other) = self.class.new(x: x + other.x, y: y + other.y)
+  def neighbours = [with(x: x - 1), with(y: y - 1), with(x: x + 1), with(y: y + 1)]
+end
+
+class WarehouseMap
+  def initialize(lines)
+    @positions = parse(lines)
+    @height = positions.length
+    @width = positions.first.length
+  end
+
+  def at(vector)
+    return Outside.new unless inside?(vector)
+
+    positions[vector.y][vector.x]
+  end
+
+  def move(from, to)
+    positions[to.y][to.x] = positions[from.y][from.x]
+    positions[from.y][from.x] = contents(Empty, from)
+  end
+
+  def box_positions
+    positions.each_with_index.flat_map do |x_positions, y|
+      x_positions.each_with_index.filter_map do |contents, x|
+        contents.is_a?(Box) ? Vector.new(x, y) : nil
+      end
+    end
+  end
+
+  attr_reader :robot_start
+
+  private
+
+  attr_reader :positions, :height, :width
+
+  def parse(lines)
+    lines.each_with_index.map do |line, y|
+      line.each_with_index.map do |char, x|
+        position = Vector.new(x, y)
+        case char
+        when '.'
+          contents(Empty, position)
+        when '#'
+          contents(Wall, position)
+        when 'O'
+          contents(Box, position)
+        when '@'
+          @robot_start = position
+          contents(Empty, position)
+        end
+      end
+    end
+  end
+
+  def contents(klass, position) = klass.new(position, self)
+  def inside?(vector) = vector.x >= 0 && vector.x < width && vector.y >= 0 && vector.y < height
+end
+
+class Outside
+  def move(_direction) = false
+end
+
+class Content
+  def initialize(position, map)
+    @position = position
+    @map = map
+  end
+
+  private
+
+  attr_reader :map
+  attr_accessor :position
+end
+
+class Empty < Content
+  def move(_direction) = true
+end
+
+class Wall < Content
+  def move(_direction) = false
+end
+
+class Box < Content
+  def move(direction)
+    return false unless map.at(position + direction).move(direction)
+
+    map.move(position, position + direction)
+    self.position += direction
+
+    true
+  end
+end
+
+class Robot < Content
+  def move(direction)
+    return unless map.at(position + direction).move(direction)
+
+    self.position += direction
+  end
+end
+
+MOVES = {
+  '<' => Vector.new(x: -1, y: 0),
+  '>' => Vector.new(x: 1, y: 0),
+  '^' => Vector.new(x: 0, y: -1),
+  'v' => Vector.new(x: 0, y: 1)
+}.freeze
+
+map_lines, (_spacer, *move_lines) =
+  ARGF
+  .readlines(chomp: true)
+  .partition { _1.start_with?('#') }
+
+map = WarehouseMap.new(map_lines.map(&:chars))
+robot = Robot.new(map.robot_start, map)
+move_lines.join.chars.map { MOVES.fetch(_1) }.each { robot.move(_1) }
+
+puts map
+  .box_positions
+  .map { _1.x + (_1.y * 100) }
+  .sum
