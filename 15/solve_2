@@ -26,8 +26,8 @@ class WarehouseMap
   def box_positions
     positions.each_with_index.flat_map do |x_positions, y|
       x_positions.each_with_index.filter_map do |contents, x|
-        contents.is_a?(Box) ? Vector.new(x, y) : nil
-      end
+        contents.is_a?(Box) ? contents.first_position : nil
+      end.uniq
     end
   end
 
@@ -38,6 +38,7 @@ class WarehouseMap
   attr_reader :positions, :height, :width
 
   def parse(lines)
+    current_box = nil
     lines.each_with_index.map do |line, y|
       line.each_with_index.map do |char, x|
         position = Vector.new(x, y)
@@ -46,8 +47,10 @@ class WarehouseMap
           contents(Empty, position)
         when '#'
           contents(Wall, position)
-        when 'O'
-          contents(Box, position)
+        when '['
+          current_box = contents(Box, position)
+        when ']'
+          current_box
         when '@'
           @robot_start = position
           contents(Empty, position)
@@ -61,6 +64,7 @@ class WarehouseMap
 end
 
 class Outside
+  def move?(_direction) = false
   def move(_direction) = false
 end
 
@@ -77,22 +81,46 @@ class Content
 end
 
 class Empty < Content
+  def move?(_direction) = true
   def move(_direction) = true
 end
 
 class Wall < Content
+  def move?(_direction) = false
   def move(_direction) = false
 end
 
 class Box < Content
+  def move?(direction)
+    parts =
+      if direction.x.negative?
+        [position]
+      elsif direction.x.positive?
+        [second_position]
+      else
+        [position, second_position]
+      end
+    parts.all? { map.at(_1 + direction).move?(direction) }
+  end
+
   def move(direction)
-    return false unless map.at(position + direction).move(direction)
+    return false unless move?(direction)
 
-    map.move(position, position + direction)
+    parts = direction.x.negative? ? [position, second_position] : [second_position, position]
+    parts.each do |part|
+      map.at(part + direction).move(direction)
+      map.move(part, part + direction)
+    end
+
     self.position += direction
-
     true
   end
+
+  def first_position = position
+
+  private
+
+  def second_position = position + Vector.new(1, 0)
 end
 
 class Robot < Content
@@ -110,12 +138,23 @@ MOVES = {
   'v' => Vector.new(x: 0, y: 1)
 }.freeze
 
+WIDENED_CONTENTS = {
+  '#' => '##',
+  'O' => '[]',
+  '.' => '..',
+  '@' => '@.'
+}.freeze
+
 map_lines, (_spacer, *move_lines) =
   ARGF
   .readlines(chomp: true)
   .partition { _1.start_with?('#') }
 
-map = WarehouseMap.new(map_lines.map(&:chars))
+map = WarehouseMap.new(
+  map_lines
+  .map(&:chars)
+  .map { |chars| chars.flat_map { WIDENED_CONTENTS.fetch(_1).chars } }
+)
 robot = Robot.new(map.robot_start, map)
 move_lines.join.chars.map { MOVES.fetch(_1) }.each { robot.move(_1) }
 
