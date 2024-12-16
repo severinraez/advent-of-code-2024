@@ -1,0 +1,180 @@
+#!/usr/bin/env ruby
+
+require 'sorted_set'
+
+Vector = Data.define(:x, :y) do
+  def +(other) = self.class.new(x: x + other.x, y: y + other.y)
+  def -(other) = self.class.new(x: x - other.x, y: y - other.y)
+  def neighbours = [with(x: x - 1), with(y: y - 1), with(x: x + 1), with(y: y + 1)]
+end
+
+class Heading
+  class << self
+    def left = new(LEFT)
+    def right = new(RIGHT)
+    def up =  new(UP)
+    def down = new(DOWN)
+  end
+
+  def initialize(direction)
+    @direction = direction
+  end
+
+  def to_s
+    if direction == self.class.left.direction
+      'left'
+    elsif direction == self.class.right.direction
+      'right'
+    elsif direction == self.class.up.direction
+      'up'
+    elsif direction == self.class.down.direction
+      'down'
+    end
+  end
+
+  def turn_count(heading)
+    other_direction = heading.direction
+    return 0 if other_direction == direction
+    return 2 if other_direction.x == -direction.x || other_direction.y == -direction.y
+
+    1
+  end
+
+  attr_reader :direction
+
+  LEFT = Vector.new(x: -1, y: 0)
+  RIGHT = Vector.new(x: 1, y: 0)
+  UP = Vector.new(x: 0, y: -1)
+  DOWN = Vector.new(x: 0, y: 1)
+  TURN_CYCLE = [LEFT, UP, RIGHT, DOWN].freeze
+  private_constant :TURN_CYCLE, :LEFT, :UP, :RIGHT, :DOWN
+end
+
+class MazeMap
+  def initialize(lines)
+    @positions = parse(lines)
+    @height = positions.length
+    @width = positions.first.length
+  end
+
+  def at(vector) = positions[vector.y][vector.x]
+
+  attr_reader :reindeer_start, :reindeer_target
+
+  private
+
+  attr_reader :positions, :height, :width
+
+  def parse(lines)
+    lines.each_with_index.map do |line, y|
+      line.each_with_index.map do |char, x|
+        case char
+        when '.'
+          :empty
+        when '#'
+          :wall
+        when 'S'
+          @reindeer_start = Vector.new(x, y)
+          :empty
+        when 'E'
+          @reindeer_target = Vector.new(x, y)
+          :empty
+        end
+      end
+    end
+  end
+end
+
+class Reindeer
+  Step = Data.define(:position, :heading)
+
+  def initialize(position, heading, map)
+    @position = position
+    @heading = heading
+    @map = map
+    @score = 0
+    @visited_positions = Set.new([position])
+    @steps = []
+  end
+
+  def reached_target?
+    position == map.reindeer_target
+  end
+
+  def possible_moves
+    position
+      .neighbours
+      .filter { map.at(_1) == :empty }
+      .reject { visited_positions.include?(_1) }
+      .map { reindeer_after_reaching(_1) }
+  end
+
+  def <=>(other) = comparable <=> other.comparable
+  def inspect = { position:, score:, visited_positions: visited_positions.count, heading: heading.to_s }
+
+  attr_reader :score, :steps
+
+  protected
+
+  attr_writer :visited_positions, :steps, :score
+
+  def comparable = [score, visited_positions.hash, heading.hash]
+  def increase_score(amount) = self.score += amount
+
+  def turn(new_heading)
+    self.score += heading.turn_count(new_heading) * 1_000
+    self.heading = new_heading
+    steps << Step.new(position:, heading: new_heading)
+  end
+
+  def move
+    self.score += 1
+    new_position = position + heading.direction
+    steps << Step.new(position: new_position, heading:)
+    visited_positions << new_position
+    self.position = new_position
+  end
+
+  private
+
+  attr_reader :map, :visited_positions
+  attr_accessor :heading, :position
+
+  def reindeer_after_reaching(target)
+    result = self.class.new(position, heading, map)
+    result.score = score
+    # result.steps = steps.dup
+    result.visited_positions = visited_positions.dup
+    result.turn(Heading.new(target - position)) if position + heading.direction != target
+    result.move
+    result
+  end
+end
+
+class BestSolution
+  def initialize(map)
+    @reindeers = SortedSet.new([Reindeer.new(map.reindeer_start, Heading.right, map)])
+  end
+
+  def score = best_solution&.score
+
+  private
+
+  attr_reader :reindeers
+
+  def best_solution
+    until reindeers.empty?
+      reindeer = reindeers.first
+      print({ score: reindeer.score, population: reindeers.size }.inspect + "\r")
+      return reindeer if reindeer.reached_target?
+
+      reindeers.delete(reindeer)
+      reindeer.possible_moves.each { reindeers.add(_1) }
+    end
+
+    nil
+  end
+end
+
+map = MazeMap.new(ARGF.readlines(chomp: true).map(&:chars))
+pp BestSolution.new(map).score
