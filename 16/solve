@@ -5,6 +5,7 @@ require 'sorted_set'
 Vector = Data.define(:x, :y) do
   def +(other) = self.class.new(x: x + other.x, y: y + other.y)
   def -(other) = self.class.new(x: x - other.x, y: y - other.y)
+  def length = Math.sqrt((x**2) + (y**2))
   def neighbours = [with(x: x - 1), with(y: y - 1), with(x: x + 1), with(y: y + 1)]
 end
 
@@ -14,23 +15,15 @@ class Heading
     def right = new(RIGHT)
     def up =  new(UP)
     def down = new(DOWN)
+    def from_points(from, to) = new(to - from)
+    def all = [left, right, up, down]
   end
 
   def initialize(direction)
     @direction = direction
   end
 
-  def to_s
-    if direction == self.class.left.direction
-      'left'
-    elsif direction == self.class.right.direction
-      'right'
-    elsif direction == self.class.up.direction
-      'up'
-    elsif direction == self.class.down.direction
-      'down'
-    end
-  end
+  def <=>(other) = direction <=> other.direction
 
   def turn_count(heading)
     other_direction = heading.direction
@@ -46,8 +39,7 @@ class Heading
   RIGHT = Vector.new(x: 1, y: 0)
   UP = Vector.new(x: 0, y: -1)
   DOWN = Vector.new(x: 0, y: 1)
-  TURN_CYCLE = [LEFT, UP, RIGHT, DOWN].freeze
-  private_constant :TURN_CYCLE, :LEFT, :UP, :RIGHT, :DOWN
+  private_constant :LEFT, :RIGHT, :UP, :DOWN
 end
 
 class MazeMap
@@ -85,96 +77,70 @@ class MazeMap
   end
 end
 
-class Reindeer
-  Step = Data.define(:position, :heading)
-
-  def initialize(position, heading, map)
-    @position = position
-    @heading = heading
-    @map = map
-    @score = 0
-    @visited_positions = Set.new([position])
-    @steps = []
+Node = Data.define(:position, :edges) do
+  class << self
+    def make(position:) = new(position:, edges: [])
   end
 
-  def reached_target?
-    position == map.reindeer_target
-  end
-
-  def possible_moves
-    position
-      .neighbours
-      .filter { map.at(_1) == :empty }
-      .reject { visited_positions.include?(_1) }
-      .map { reindeer_after_reaching(_1) }
-  end
-
-  def <=>(other) = comparable <=> other.comparable
-  def inspect = { position:, score:, visited_positions: visited_positions.count, heading: heading.to_s }
-
-  attr_reader :score, :steps
-
-  protected
-
-  attr_writer :visited_positions, :steps, :score
-
-  def comparable = [score, visited_positions.hash, heading.hash]
-  def increase_score(amount) = self.score += amount
-
-  def turn(new_heading)
-    self.score += heading.turn_count(new_heading) * 1_000
-    self.heading = new_heading
-    steps << Step.new(position:, heading: new_heading)
-  end
-
-  def move
-    self.score += 1
-    new_position = position + heading.direction
-    steps << Step.new(position: new_position, heading:)
-    visited_positions << new_position
-    self.position = new_position
-  end
-
-  private
-
-  attr_reader :map, :visited_positions
-  attr_accessor :heading, :position
-
-  def reindeer_after_reaching(target)
-    result = self.class.new(position, heading, map)
-    result.score = score
-    # result.steps = steps.dup
-    result.visited_positions = visited_positions.dup
-    result.turn(Heading.new(target - position)) if position + heading.direction != target
-    result.move
-    result
+  def connect(other, weight)
+    edge = Edge.new([self, other], weight)
+    edges << edge
+    other.edges << edge
   end
 end
+Edge = Data.define(:nodes, :weight)
 
-class BestSolution
+class MazeGraph
   def initialize(map)
-    @reindeers = SortedSet.new([Reindeer.new(map.reindeer_start, Heading.right, map)])
+    @map = map
+    @nodes = {}
+    parse
   end
 
-  def score = best_solution&.score
+  def node(position) = @nodes.fetch(position)
 
   private
 
-  attr_reader :reindeers
+  attr_reader :map, :nodes
 
-  def best_solution
-    until reindeers.empty?
-      reindeer = reindeers.first
-      print({ score: reindeer.score, population: reindeers.size }.inspect + "\r")
-      return reindeer if reindeer.reached_target?
+  def parse = flood(make_node(map.reindeer_start))
 
-      reindeers.delete(reindeer)
-      reindeer.possible_moves.each { reindeers.add(_1) }
+  def flood(node)
+    Heading.all.each do |heading|
+      flood_direction(
+        node,
+        heading,
+        node.position + heading.direction
+      )
     end
-
-    nil
   end
+
+  def flood_direction(node, heading, position)
+    return if map.at(position) == :wall && node.position + heading.direction == position
+
+    free_neighbours =
+      position
+      .neighbours
+      .select { map.at(_1) == :empty }
+
+    ahead = position + heading.direction
+    free_ahead = free_neighbours.include?(ahead)
+    if free_neighbours.length > 2 || !free_ahead
+      stop_after = has_node?(position)
+      new_node = make_node(position)
+      cost = (position - node.position).length
+      new_node.connect(node, cost)
+      flood(new_node) unless stop_after
+    elsif free_ahead
+      flood_direction(node, heading, ahead)
+    end
+  end
+
+  def has_node?(position) = nodes.key?(position)
+  def make_node(position) = nodes[position] ||= Node.make(position:)
 end
 
 map = MazeMap.new(ARGF.readlines(chomp: true).map(&:chars))
-pp BestSolution.new(map).score
+graph = MazeGraph.new(map)
+pp graph.node(map.reindeer_start).edges.map { _1.nodes.map(&:position) }
+pp graph.node(map.reindeer_target).edges.map { _1.nodes.map(&:position) }
