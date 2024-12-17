@@ -8,6 +8,7 @@ Vector = Data.define(:x, :y) do
   def length = Math.sqrt((x**2) + (y**2))
   def neighbours = [with(x: x - 1), with(y: y - 1), with(x: x + 1), with(y: y + 1)]
   def unit = self.class.new(x: x == 0 ? 0 : x.abs / x, y: y == 0 ? y : y.abs / y)
+  def to_s = "#{x}/#{y}"
 end
 
 class Heading
@@ -54,11 +55,11 @@ class MazeMap
 
   def at(vector) = positions[vector.y][vector.x]
 
-  attr_reader :reindeer_start, :reindeer_target
+  attr_reader :reindeer_start, :reindeer_target, :height, :width
 
   private
 
-  attr_reader :positions, :height, :width
+  attr_reader :positions
 
   def parse(lines)
     lines.each_with_index.map do |line, y|
@@ -94,7 +95,9 @@ Node = Data.define(:position, :edges) do
   end
 
   def connected?(other) = edges.any? { _1.nodes.include?(other) }
-  def each_connected_node(&) = edges.map { yield((_1.nodes - [self]).first, _1.weight) }
+  def each_connected_node(&) = connected_nodes.each { yield(*_1) }
+  def connected_nodes = edges.map { [(_1.nodes - [self]).first, _1.weight] }
+  def inspect = "Node(#{position} => #{connected_nodes.map { |n, c| n.position }.map(&:to_s).join(', ')})"
 end
 
 Edge = Data.define(:nodes, :weight)
@@ -153,10 +156,11 @@ class Solution
   def initialize(graph, start_node, start_heading, target_node)
     @graph = graph
     @target_node = target_node
-    @inside_positions = Set.new
+    @inside = Set.new
     @fringe = SortedSet.new(
       [FringeEntry.new(node: start_node, heading: start_heading, cost: 0, positions: [start_node.position])]
     )
+    mark_processed(@fringe.to_a)
   end
 
   def search
@@ -168,58 +172,62 @@ class Solution
       best_fringe_cost = fringe.first.cost
       return best_paths if !best_cost.nil? && best_fringe_cost > best_cost
 
-      candidates = pop_candidates(best_fringe_cost)
+      fringe_entries = pop_fringe(best_fringe_cost)
+      new_fringe_entries = []
 
-      candidates.each do |candidate|
-        candidate.node.each_connected_node do |node, advance_cost|
-          next if inside_positions.include?(node.position)
+      fringe_entries.each do |fringe_entry|
+        fringe_entry.node.each_connected_node do |new_node, advance_cost|
+          new_heading = Heading.from_points(fringe_entry.node.position, new_node.position)
 
-          heading = Heading.from_points(candidate.node.position, node.position)
-          turn_cost = candidate.heading.turn_count(heading) * 1_000
-          cost = (candidate.cost + turn_cost + advance_cost).to_i
-          positions = [*candidate.positions, node.position]
+          next if inside?(new_node, new_heading)
 
-          if node == target_node
-            pp(cost:, best_cost:, candidate_cost: candidate.cost, from: candidate.node.position, to: node.position,
-               heading_from: candidate.heading.direction, heading_to: heading.direction, positions:)
+          turn_cost = fringe_entry.heading.turn_count(new_heading) * 1_000
+          cost = (fringe_entry.cost + turn_cost + advance_cost).to_i
+          positions = [*fringe_entry.positions, new_node.position]
+
+          if new_node == target_node
             if best_cost.nil? || best_cost == cost
-              pp(adding: positions)
               best_cost ||= cost
               best_paths << positions
             end
           else
-            fringe << FringeEntry.new(node:, heading:, cost:, positions:)
+            new_fringe_entries << FringeEntry.new(node: new_node, heading: new_heading, cost:, positions:)
           end
         end
       end
 
-      mark_processed(candidates)
+      mark_processed(new_fringe_entries)
+      new_fringe_entries.each { fringe << _1 }
+
+      puts 'Fringe:'
+      puts fringe.map(&:inspect).join("\n")
     end
     best_paths
   end
 
   private
 
-  attr_reader :graph, :target_node, :inside_positions, :fringe
+  attr_reader :graph, :target_node, :inside, :fringe
 
   FringeEntry = Data.define(:node, :heading, :cost, :positions) do
     def <=>(other) = comparable <=> other.comparable
+
+    def inspect = "FringeEntry(P #{node.position}, H #{heading.direction}, C #{cost}, H #{positions.map(&:to_s).join(', ')})"
 
     protected
 
     def comparable = [cost, node.position.hash, heading.direction.hash]
   end
 
-  def mark_processed(candidates)
-    candidates.each do |candidate|
-      drop_position_from_fringe(candidate.node.position)
-      inside_positions.add(candidate.node.position)
+  def inside?(node, heading) = inside.include?([node.position, heading.direction])
+
+  def mark_processed(fringe_entries)
+    fringe_entries.each do |entry|
+      inside.add([entry.node.position, entry.heading.direction])
     end
   end
 
-  def drop_position_from_fringe(position) = fringe.delete_if { _1.node.position == position }
-
-  def pop_candidates(cost)
+  def pop_fringe(cost)
     result = []
     loop do
       candidate = fringe.first
@@ -233,8 +241,6 @@ end
 
 map = MazeMap.new(ARGF.readlines(chomp: true).map(&:chars))
 graph = MazeGraph.new(map)
-# pp graph.node(map.reindeer_start).edges.map { _1.nodes.map(&:position) }
-# pp graph.node(map.reindeer_target).edges.map { _1.nodes.map(&:position) }
 
 def fill_gaps(from, to)
   direction = Heading.from_points(from, to).direction
@@ -247,6 +253,32 @@ def fill_gaps(from, to)
   [*result, to]
 end
 
+def print_path(map, positions, markers)
+  markers.each do |position, char|
+    puts "#{position} => #{char}"
+  end
+
+  (0...map.height).each do |y|
+    (0...map.width).each do |x|
+      position = Vector.new(x, y)
+      print case map.at(position)
+            when :empty
+              if markers.key?(position)
+                markers[position]
+              elsif positions.include?(position)
+                'O'
+              else
+                '.'
+              end
+
+            when :wall
+              '#'
+            end
+    end
+    print "\n"
+  end
+end
+
 paths = Solution.new(
   graph,
   graph.node(map.reindeer_start),
@@ -255,10 +287,8 @@ paths = Solution.new(
 ).search
 
 pp paths
-pp paths[0] == paths[1]
-
-pp paths
   .map { _1.each_cons(2).flat_map { |from, to| fill_gaps(from, to) } }
+  .each { print_path(map, _1, { Vector.new(1, 9) => 'X', Vector.new(5, 7) => 'Y', Vector.new(5, 9q) => 'Z' }) }
   .flatten
   .uniq
   .length
