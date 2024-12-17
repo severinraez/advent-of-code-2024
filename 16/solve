@@ -7,6 +7,7 @@ Vector = Data.define(:x, :y) do
   def -(other) = self.class.new(x: x - other.x, y: y - other.y)
   def length = Math.sqrt((x**2) + (y**2))
   def neighbours = [with(x: x - 1), with(y: y - 1), with(x: x + 1), with(y: y + 1)]
+  def unit = self.class.new(x: x == 0 ? 0 : x.abs / x, y: y == 0 ? y : y.abs / y)
 end
 
 class Heading
@@ -15,7 +16,7 @@ class Heading
     def right = new(RIGHT)
     def up =  new(UP)
     def down = new(DOWN)
-    def from_points(from, to) = new(to - from)
+    def from_points(from, to) = new((to - from).unit)
     def all = [left, right, up, down]
   end
 
@@ -23,6 +24,8 @@ class Heading
     @direction = direction
   end
 
+  def eql?(other) = direction == other.direction
+  def hash = direction.hash
   def <=>(other) = direction <=> other.direction
 
   def turn_count(heading)
@@ -87,7 +90,10 @@ Node = Data.define(:position, :edges) do
     edges << edge
     other.edges << edge
   end
+
+  def each_connected_node(&) = edges.map { yield((_1.nodes - [self]).first, _1.weight) }
 end
+
 Edge = Data.define(:nodes, :weight)
 
 class MazeGraph
@@ -140,7 +146,76 @@ class MazeGraph
   def make_node(position) = nodes[position] ||= Node.make(position:)
 end
 
+class Solution
+  def initialize(graph, start_node, start_heading, target_node)
+    @graph = graph
+    @target_node = target_node
+    @inside_positions = Set.new
+    @fringe = SortedSet.new(
+      [FringeEntry.new(node: start_node, heading: start_heading, cost: 0)]
+    )
+  end
+
+  def search
+    best = []
+    while best.empty?
+      candidates = pop_candidates(fringe.first.cost)
+
+      candidates.each do |entry|
+        entry.node.each_connected_node do |node, advance_cost|
+          next if inside_positions.include?(node)
+
+          heading = Heading.from_points(entry.node.position, node.position)
+          turn_cost = entry.heading.turn_count(heading) * 1_000
+          cost = (entry.cost + turn_cost + advance_cost).to_i
+
+          best << cost if node == target_node
+
+          fringe << FringeEntry.new(node:, heading:, cost:)
+        end
+      end
+      candidates.each do |candidate|
+        drop_position_from_fringe(candidate.node.position)
+        inside_positions.add(candidate.node.position)
+      end
+    end
+    best
+  end
+
+  private
+
+  attr_reader :graph, :target_node, :inside_positions, :fringe
+
+  FringeEntry = Data.define(:node, :heading, :cost) do
+    def <=>(other) = comparable <=> other.comparable
+
+    protected
+
+    def comparable = [cost, node.position.hash, heading.direction.hash]
+  end
+
+  def drop_position_from_fringe(position) = fringe.delete_if { _1.node.position == position }
+
+  def pop_candidates(cost)
+    result = []
+    loop do
+      candidate = fringe.first
+      return result if candidate.nil? || candidate.cost != cost
+
+      result << candidate
+      fringe.delete(candidate)
+    end
+  end
+end
+
 map = MazeMap.new(ARGF.readlines(chomp: true).map(&:chars))
 graph = MazeGraph.new(map)
-pp graph.node(map.reindeer_start).edges.map { _1.nodes.map(&:position) }
-pp graph.node(map.reindeer_target).edges.map { _1.nodes.map(&:position) }
+# pp graph.node(map.reindeer_start).edges.map { _1.nodes.map(&:position) }
+# pp graph.node(map.reindeer_target).edges.map { _1.nodes.map(&:position) }
+
+puts Solution.new(
+  graph,
+  graph.node(map.reindeer_start),
+  Heading.right,
+  graph.node(map.reindeer_target)
+).search.first
