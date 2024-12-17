@@ -155,46 +155,66 @@ class Solution
     @target_node = target_node
     @inside_positions = Set.new
     @fringe = SortedSet.new(
-      [FringeEntry.new(node: start_node, heading: start_heading, cost: 0)]
+      [FringeEntry.new(node: start_node, heading: start_heading, cost: 0, positions: [start_node.position])]
     )
   end
 
   def search
-    best = []
-    while best.empty?
-      candidates = pop_candidates(fringe.first.cost)
+    best_paths = []
+    best_cost = nil
+    loop do
+      return best_paths if fringe.empty?
 
-      candidates.each do |entry|
-        entry.node.each_connected_node do |node, advance_cost|
-          next if inside_positions.include?(node)
+      best_fringe_cost = fringe.first.cost
+      return best_paths if !best_cost.nil? && best_fringe_cost > best_cost
 
-          heading = Heading.from_points(entry.node.position, node.position)
-          turn_cost = entry.heading.turn_count(heading) * 1_000
-          cost = (entry.cost + turn_cost + advance_cost).to_i
+      candidates = pop_candidates(best_fringe_cost)
 
-          best << cost if node == target_node
+      candidates.each do |candidate|
+        candidate.node.each_connected_node do |node, advance_cost|
+          next if inside_positions.include?(node.position)
 
-          fringe << FringeEntry.new(node:, heading:, cost:)
+          heading = Heading.from_points(candidate.node.position, node.position)
+          turn_cost = candidate.heading.turn_count(heading) * 1_000
+          cost = (candidate.cost + turn_cost + advance_cost).to_i
+          positions = [*candidate.positions, node.position]
+
+          if node == target_node
+            pp(cost:, best_cost:, candidate_cost: candidate.cost, from: candidate.node.position, to: node.position,
+               heading_from: candidate.heading.direction, heading_to: heading.direction, positions:)
+            if best_cost.nil? || best_cost == cost
+              pp(adding: positions)
+              best_cost ||= cost
+              best_paths << positions
+            end
+          else
+            fringe << FringeEntry.new(node:, heading:, cost:, positions:)
+          end
         end
       end
-      candidates.each do |candidate|
-        drop_position_from_fringe(candidate.node.position)
-        inside_positions.add(candidate.node.position)
-      end
+
+      mark_processed(candidates)
     end
-    best
+    best_paths
   end
 
   private
 
   attr_reader :graph, :target_node, :inside_positions, :fringe
 
-  FringeEntry = Data.define(:node, :heading, :cost) do
+  FringeEntry = Data.define(:node, :heading, :cost, :positions) do
     def <=>(other) = comparable <=> other.comparable
 
     protected
 
     def comparable = [cost, node.position.hash, heading.direction.hash]
+  end
+
+  def mark_processed(candidates)
+    candidates.each do |candidate|
+      drop_position_from_fringe(candidate.node.position)
+      inside_positions.add(candidate.node.position)
+    end
   end
 
   def drop_position_from_fringe(position) = fringe.delete_if { _1.node.position == position }
@@ -216,9 +236,29 @@ graph = MazeGraph.new(map)
 # pp graph.node(map.reindeer_start).edges.map { _1.nodes.map(&:position) }
 # pp graph.node(map.reindeer_target).edges.map { _1.nodes.map(&:position) }
 
-puts Solution.new(
+def fill_gaps(from, to)
+  direction = Heading.from_points(from, to).direction
+  result = []
+  pointer = from
+  while pointer != to
+    result << pointer
+    pointer += direction
+  end
+  [*result, to]
+end
+
+paths = Solution.new(
   graph,
   graph.node(map.reindeer_start),
   Heading.right,
   graph.node(map.reindeer_target)
-).search.first
+).search
+
+pp paths
+pp paths[0] == paths[1]
+
+pp paths
+  .map { _1.each_cons(2).flat_map { |from, to| fill_gaps(from, to) } }
+  .flatten
+  .uniq
+  .length
