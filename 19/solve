@@ -43,13 +43,21 @@ patterns = pattern_line.split(', ').map(&:chars)
 trie = MultiTrie.new
 patterns.each { trie.add(_1) }
 
-def possible?(chars, trie)
+def possible?(chars, trie, dead_ends = Set.new)
   return true if chars.empty?
 
   lengths = trie.matching_lengths(chars)
   return false if lengths.empty?
 
-  lengths.any? { possible?(chars[_1..], trie) }
+  lengths.sort.uniq.each do |length|
+    rest = chars[length..]
+    next if dead_ends.include?(rest.length)
+
+    return true if possible?(rest, trie, dead_ends)
+    dead_ends << rest.length
+  end
+
+  false
 end
 
 pp designs.filter { possible?(_1, trie) }.count
