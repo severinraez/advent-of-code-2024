@@ -5,6 +5,7 @@ require 'sorted_set'
 Vector = Data.define(:x, :y) do
   def +(other) = self.class.new(x: x + other.x, y: y + other.y)
   def -(other) = self.class.new(x: x - other.x, y: y - other.y)
+  def opposite = self.class.new(x: -x, y: -y)
   def length = Math.sqrt((x**2) + (y**2))
   def neighbours = [with(x: x - 1), with(y: y - 1), with(x: x + 1), with(y: y + 1)]
   def unit = self.class.new(x: x == 0 ? 0 : x.abs / x, y: y == 0 ? y : y.abs / y)
@@ -25,9 +26,11 @@ class Heading
     @direction = direction
   end
 
+  def opposite = self.class.new(@direction.opposite)
   def eql?(other) = direction == other.direction
   def hash = direction.hash
   def <=>(other) = direction <=> other.direction
+  def to_s = "H #{direction}"
 
   def turn_count(heading)
     other_direction = heading.direction
@@ -81,54 +84,58 @@ class MazeMap
   end
 end
 
-Node = Data.define(:position, :edges) do
+Node = Data.define(:position, :edges, :id) do
   class << self
-    def make(position:) = new(position:, edges: [])
+    def make(position:, id:) = new(position:, edges: [], id:)
   end
 
   def connect(other, weight)
     return if connected?(other)
 
-    edge = Edge.new([self, other], weight)
+    pp(from: id, to: other.id, weight:)
+
+    edge = Edge.new(other, weight)
     edges << edge
     other.edges << edge
   end
 
-  def connected?(other) = edges.any? { _1.nodes.include?(other) }
-  def each_connected_node(&) = connected_nodes.each { yield(*_1) }
-  def connected_nodes = edges.map { [(_1.nodes - [self]).first, _1.weight] }
-  def inspect = "Node(#{position} => #{connected_nodes.map { |n, c| n.position }.map(&:to_s).join(', ')})"
+  def <=>(other) = id <=> other.id
+  def eql?(other) = id == other.id
+  def connected?(other) = edges.any? { _1.to_node == other }
+  def each_connected_node(&) = edges.each { yield(_1.to_node, _1.weight) }
 end
 
-Edge = Data.define(:nodes, :weight)
+Edge = Data.define(:to_node, :weight)
 
 class MazeGraph
   def initialize(map)
     @map = map
     @nodes = {}
+    @node_id = 0
     parse
   end
 
-  def node(position) = @nodes.fetch(position)
+  def nodes_at(position) = nodes.fetch(position)
 
   private
 
   attr_reader :map, :nodes
+  attr_accessor :node_id
 
-  def parse = flood(make_node(map.reindeer_start))
+  def parse = flood(find_or_make_nodes(map.reindeer_start))
 
-  def flood(node)
+  def flood(nodes)
     Heading.all.each do |heading|
       flood_direction(
-        node,
+        nodes,
         heading,
-        node.position + heading.direction
+        nodes_position(nodes) + heading.direction
       )
     end
   end
 
-  def flood_direction(node, heading, position)
-    return if map.at(position) == :wall && node.position + heading.direction == position
+  def flood_direction(nodes, heading, position)
+    return if map.at(position) == :wall && nodes_position(nodes) + heading.direction == position
 
     free_neighbours =
       position
@@ -138,96 +145,85 @@ class MazeGraph
     ahead = position + heading.direction
     free_ahead = free_neighbours.include?(ahead)
     if free_neighbours.length > 2 || !free_ahead
-      stop_after = has_node?(position)
-      new_node = make_node(position)
-      cost = (position - node.position).length
-      new_node.connect(node, cost)
-      flood(new_node) unless stop_after
+      stop_after = has_nodes?(position)
+      new_nodes = find_or_make_nodes(position)
+      cost = (position - nodes_position(nodes)).length
+      nodes.fetch(heading).connect(new_nodes.fetch(heading), cost)
+      new_nodes.fetch(heading.opposite).connect(nodes.fetch(heading.opposite), cost)
+      flood(new_nodes) unless stop_after
     elsif free_ahead
-      flood_direction(node, heading, ahead)
+      flood_direction(nodes, heading, ahead)
     end
   end
 
-  def has_node?(position) = nodes.key?(position)
-  def make_node(position) = nodes[position] ||= Node.make(position:)
+  def has_nodes?(position) = nodes.key?(position)
+  def nodes_position(nodes) = nodes.values.first.position
+  def find_or_make_nodes(position) = nodes[position] ||= make_nodes(position)
+
+  TURN_CYCLE = [Heading.left, Heading.up, Heading.right, Heading.down].freeze
+  private_constant :TURN_CYCLE
+
+  def make_nodes(position)
+    nodes = TURN_CYCLE.each_with_object({}) do |heading, memo|
+      memo[heading] = Node.make(position:, id: make_node_id(position, heading))
+    end
+    first, *rest = nodes.values
+    [first, *rest, first].each_cons(2) do |before, after|
+      after.connect(before, 1_000)
+      before.connect(after, 1_000)
+    end
+    nodes
+  end
+
+  def make_node_id(position, heading)
+    self.node_id += 1
+    "##{node_id} P #{position} #{heading}"
+  end
 end
 
 class Solution
-  def initialize(graph, start_node, start_heading, target_node)
+  def initialize(graph, start_node, target_nodes)
     @graph = graph
-    @target_node = target_node
-    @inside = Set.new
-    @fringe = SortedSet.new(
-      [FringeEntry.new(node: start_node, heading: start_heading, cost: 0, positions: [start_node.position])]
-    )
-    mark_processed(@fringe.to_a)
+    @target_nodes = target_nodes
+    @inside_nodes = Set.new
+    @fringe = SortedSet.new([FringeEntry.new(node: start_node, cost: 0, path: [PathEntry.new(start_node, 0)])])
   end
 
   def search
-    best_paths = []
-    best_cost = nil
-    loop do
-      return best_paths if fringe.empty?
+    best = []
+    while best.empty?
+      candidates = pop_candidates(fringe.first.cost)
+      candidates.each do |entry|
+        entry.node.each_connected_node do |new_node, move_cost|
+          next if inside_nodes.include?(new_node)
 
-      best_fringe_cost = fringe.first.cost
-      return best_paths if !best_cost.nil? && best_fringe_cost > best_cost
-
-      fringe_entries = pop_fringe(best_fringe_cost)
-      new_fringe_entries = []
-
-      fringe_entries.each do |fringe_entry|
-        fringe_entry.node.each_connected_node do |new_node, advance_cost|
-          new_heading = Heading.from_points(fringe_entry.node.position, new_node.position)
-
-          next if inside?(new_node, new_heading)
-
-          turn_cost = fringe_entry.heading.turn_count(new_heading) * 1_000
-          cost = (fringe_entry.cost + turn_cost + advance_cost).to_i
-          positions = [*fringe_entry.positions, new_node.position]
-
-          if new_node == target_node
-            if best_cost.nil? || best_cost == cost
-              best_cost ||= cost
-              best_paths << positions
-            end
-          else
-            new_fringe_entries << FringeEntry.new(node: new_node, heading: new_heading, cost:, positions:)
-          end
+          new_cost = entry.cost + move_cost
+          path = [*entry.path, PathEntry.new(new_node, new_cost)]
+          best << path if target_nodes.include?(new_node)
+          fringe << FringeEntry.new(node: new_node, cost: new_cost, path:)
         end
       end
-
-      mark_processed(new_fringe_entries)
-      new_fringe_entries.each { fringe << _1 }
-
-      puts 'Fringe:'
-      puts fringe.map(&:inspect).join("\n")
+      candidates.each { inside_nodes.add(_1.node) }
     end
-    best_paths
+    best
   end
 
   private
 
-  attr_reader :graph, :target_node, :inside, :fringe
+  attr_reader :graph, :target_nodes, :inside_nodes, :fringe
 
-  FringeEntry = Data.define(:node, :heading, :cost, :positions) do
+  PathEntry = Data.define(:node, :cost) do
+    def to_s = "#{node.id} C #{cost}"
+  end
+
+  FringeEntry = Data.define(:node, :cost, :path) do
     def <=>(other) = comparable <=> other.comparable
-
-    def inspect = "FringeEntry(P #{node.position}, H #{heading.direction}, C #{cost}, H #{positions.map(&:to_s).join(', ')})"
-
-    protected
-
-    def comparable = [cost, node.position.hash, heading.direction.hash]
+    def comparable = [cost, node]
   end
 
-  def inside?(node, heading) = inside.include?([node.position, heading.direction])
+  def drop_position_from_fringe(position) = fringe.delete_if { _1.node.position == position }
 
-  def mark_processed(fringe_entries)
-    fringe_entries.each do |entry|
-      inside.add([entry.node.position, entry.heading.direction])
-    end
-  end
-
-  def pop_fringe(cost)
+  def pop_candidates(cost)
     result = []
     loop do
       candidate = fringe.first
@@ -239,9 +235,6 @@ class Solution
   end
 end
 
-map = MazeMap.new(ARGF.readlines(chomp: true).map(&:chars))
-graph = MazeGraph.new(map)
-
 def fill_gaps(from, to)
   direction = Heading.from_points(from, to).direction
   result = []
@@ -251,6 +244,15 @@ def fill_gaps(from, to)
     pointer += direction
   end
   [*result, to]
+end
+
+def path_positions(path, map)
+  path
+    .map(&:node)
+    .map(&:position)
+    .each_cons(2)
+    .flat_map { |from, to| fill_gaps(from, to) }
+    .tap { print_path(map, _1, {}) }
 end
 
 def print_path(map, positions, markers)
@@ -279,16 +281,14 @@ def print_path(map, positions, markers)
   end
 end
 
+map = MazeMap.new(ARGF.readlines(chomp: true).map(&:chars))
+graph = MazeGraph.new(map)
+
 paths = Solution.new(
   graph,
-  graph.node(map.reindeer_start),
-  Heading.right,
-  graph.node(map.reindeer_target)
+  graph.nodes_at(map.reindeer_start).fetch(Heading.right),
+  graph.nodes_at(map.reindeer_target).values
 ).search
 
-pp paths
-  .map { _1.each_cons(2).flat_map { |from, to| fill_gaps(from, to) } }
-  .each { print_path(map, _1, { Vector.new(1, 9) => 'X', Vector.new(5, 7) => 'Y', Vector.new(5, 9q) => 'Z' }) }
-  .flatten
-  .uniq
-  .length
+puts paths
+pp paths.flat_map { path_positions(_1, map) }.uniq.count
