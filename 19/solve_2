@@ -1,0 +1,61 @@
+#!/usr/bin/env ruby
+
+class MultiTrie
+  def initialize
+    @head = {}
+  end
+
+  def add(chars) = add_chars(chars, head)
+  def matching_lengths(chars) = consume_chars(chars, head, 0)
+
+  private
+
+  attr_reader :head
+
+  def add_chars(chars, target)
+    if chars.empty?
+      target[:end] = true
+      return
+    end
+
+    first, *rest = chars
+    target[first] ||= {}
+
+    add_chars(rest, target[first])
+  end
+
+  def consume_chars(chars, target, consumed_count)
+    return [] if target.nil?
+
+    result = []
+    result << consumed_count if target[:end] == true
+    return result if chars.empty?
+
+    first, *rest = chars
+    [*result, *consume_chars(rest, target[first], consumed_count + 1)]
+  end
+end
+
+pattern_line, _spacer, *design_lines = ARGF.readlines(chomp: true)
+designs = design_lines.map(&:chars)
+patterns = pattern_line.split(', ').map(&:chars)
+
+trie = MultiTrie.new
+patterns.each { trie.add(_1) }
+
+def combination_count(chars, trie, counts = {})
+  return 1 if chars.empty?
+
+  lengths = trie.matching_lengths(chars)
+  return 0 if lengths.empty?
+
+  lengths.sort.uniq.each do |length|
+    rest = chars[length..]
+    counts[rest.length] ||= combination_count(rest, trie, counts)
+  end
+
+  rest_lengths = lengths.map { chars.length - _1 }
+  counts.values_at(*rest_lengths).compact.sum
+end
+
+pp designs.map { combination_count(_1, trie) }.sum
