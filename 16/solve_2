@@ -90,13 +90,10 @@ Node = Data.define(:position, :edges, :id) do
   end
 
   def connect(other, weight)
+    raise :boom if id == other.id
     return if connected?(other)
 
-    pp(from: id, to: other.id, weight:)
-
-    edge = Edge.new(other, weight)
-    edges << edge
-    other.edges << edge
+    edges << Edge.new(other, weight)
   end
 
   def <=>(other) = id <=> other.id
@@ -150,6 +147,7 @@ class MazeGraph
       cost = (position - nodes_position(nodes)).length
       nodes.fetch(heading).connect(new_nodes.fetch(heading), cost)
       new_nodes.fetch(heading.opposite).connect(nodes.fetch(heading.opposite), cost)
+
       flood(new_nodes) unless stop_after
     elsif free_ahead
       flood_direction(nodes, heading, ahead)
@@ -186,13 +184,15 @@ class Solution
     @graph = graph
     @target_nodes = target_nodes
     @inside_nodes = Set.new
-    @fringe = SortedSet.new([FringeEntry.new(node: start_node, cost: 0, path: [PathEntry.new(start_node, 0)])])
+    @fringe = SortedSet.new([FringeEntry.make(node: start_node, cost: 0, path: [PathEntry.new(start_node, 0)])])
   end
 
   def search
     best = []
     while best.empty?
+      pp [fringe.size, fringe.first.cost]
       candidates = pop_candidates(fringe.first.cost)
+
       candidates.each do |entry|
         entry.node.each_connected_node do |new_node, move_cost|
           next if inside_nodes.include?(new_node)
@@ -200,7 +200,7 @@ class Solution
           new_cost = entry.cost + move_cost
           path = [*entry.path, PathEntry.new(new_node, new_cost)]
           best << path if target_nodes.include?(new_node)
-          fringe << FringeEntry.new(node: new_node, cost: new_cost, path:)
+          fringe << FringeEntry.make(node: new_node, cost: new_cost, path:)
         end
       end
       candidates.each { inside_nodes.add(_1.node) }
@@ -216,9 +216,13 @@ class Solution
     def to_s = "#{node.id} C #{cost}"
   end
 
-  FringeEntry = Data.define(:node, :cost, :path) do
+  FringeEntry = Data.define(:node, :cost, :path, :path_hash) do
+    class << self
+      def make(node:, cost:, path:) = new(node:, cost:, path:, path_hash: path.map { _1.node.id }.hash)
+    end
+
     def <=>(other) = comparable <=> other.comparable
-    def comparable = [cost, node]
+    def comparable = [cost, path_hash]
   end
 
   def drop_position_from_fringe(position) = fringe.delete_if { _1.node.position == position }
@@ -252,7 +256,7 @@ def path_positions(path, map)
     .map(&:position)
     .each_cons(2)
     .flat_map { |from, to| fill_gaps(from, to) }
-    .tap { print_path(map, _1, {}) }
+  # .tap { print_path(map, _1, {}) }
 end
 
 def print_path(map, positions, markers)
@@ -290,5 +294,4 @@ paths = Solution.new(
   graph.nodes_at(map.reindeer_target).values
 ).search
 
-puts paths
 pp paths.flat_map { path_positions(_1, map) }.uniq.count
