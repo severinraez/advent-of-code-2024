@@ -21,18 +21,25 @@ class Keypad
     from = button_position(label_from)
     to = button_position(label_to)
     distance = to - from
-    return keys(distance) if distance.x.zero? || distance.y.zero?
+    return [keys(distance)] if distance.x.zero? || distance.y.zero?
 
     x_distance = Vector.new(distance.x, 0)
     y_distance = Vector.new(0, distance.y)
 
-    if valid_path?(from, from + x_distance, to)
-      keys(x_distance) + keys(y_distance)
-    elsif valid_path?(from, from + y_distance, to)
-      keys(y_distance) + keys(x_distance)
-    else
-      raise 'should not happen'
-    end
+    results = []
+    results << (keys(x_distance) + keys(y_distance)) if valid_path?(from, from + x_distance, to)
+    results << (keys(y_distance) + keys(x_distance)) if valid_path?(from, from + y_distance, to)
+    raise 'should not happen' if results.empty?
+
+    results
+  end
+
+  def distance(label_from, label_to)
+    from = button_position(label_from)
+    to = button_position(label_to)
+
+    distance = to - from
+    distance.x + distance.y
   end
 
   private
@@ -61,52 +68,69 @@ class Keypad
 end
 
 class KeySequence
-  def initialize(keypad)
+  # @param [KeySequence] remote
+  def initialize(keypad, remote)
     @last_button = 'A'
+    @remote = remote
     @keypad = keypad
   end
 
-  def remote_keys(buttons)
-    buttons.flat_map { button_remote_keys(_1) }
-  end
-
-  private
-
-  def button_remote_keys(button)
-    result = keypad.remote_keys(last_button, button)
+  def remote_keys(button)
+    options = keypad.remote_keys(last_button, button)
+    result = options.min_by { first_key_distance(_1) }
     self.last_button = button
     [*result, 'A']
   end
 
-  attr_reader :keypad
+  def distance(button) = keypad.distance(last_button, button)
+
+  private
+
+  def first_key_distance(buttons)
+    return 0 if remote.nil?
+
+    first, *_rest = buttons
+    remote.distance(first).to_i
+  end
+
+  attr_reader :keypad, :remote
   attr_accessor :last_button
 end
 
 class RequiredPresses
-  def press_count(door_buttons)
-    radiation_remote = KeySequence.new(DOOR_KEYPAD)
-    temperature_remote = KeySequence.new(REMOTE_KEYPAD)
-    my_remote = KeySequence.new(REMOTE_KEYPAD)
+  def initialize
+    @my_remote = KeySequence.new(REMOTE_KEYPAD, nil)
+    @temperature_remote = KeySequence.new(REMOTE_KEYPAD, my_remote)
+    @radiation_remote = KeySequence.new(DOOR_KEYPAD, temperature_remote)
+  end
 
-    door_buttons
-      # .tap { pp door_buttons: _1 }
-      .then { radiation_remote.remote_keys(_1) }
-      # .tap { pp radiation_remote: _1 }
-      .then { temperature_remote.remote_keys(_1) }
-      # .tap { pp temperature_remote: _1 }
-      .then { my_remote.remote_keys(_1) }
-      # .tap { pp my_remote: _1 }
-      .count
+  def press_count(door_buttons)
+    door_buttons.sum { press_count_button(_1) }
   end
 
   private
 
-  attr_reader :last_char
+  attr_reader :last_char, :my_remote, :temperature_remote, :radiation_remote
 
   DOOR_KEYPAD = Keypad.new([%w[7 8 9], %w[4 5 6], %w[1 2 3], [nil, '0', 'A']])
   REMOTE_KEYPAD = Keypad.new([[nil, '^', 'A'], %w[< v >]])
 
   private_constant :DOOR_KEYPAD, :REMOTE_KEYPAD
+
+  def press_count_button(button)
+    pp door_button: button
+    radiation_remote
+      .remote_keys(button)
+      .tap { pp radiation_remote: _1 }
+      .flat_map do |radiation_remote_button|
+        temperature_remote
+          .remote_keys(radiation_remote_button)
+          .tap { pp temperature_remote: _1 }
+          .flat_map { my_remote.remote_keys(_1) }
+          .tap { pp my_remote: _1 }
+      end
+      .count
+  end
 end
 
 def code_presses(code)
