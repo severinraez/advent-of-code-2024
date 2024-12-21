@@ -1,0 +1,103 @@
+#!/usr/bin/env ruby
+
+require_relative '../lib'
+
+Button = Data.define(:label, :position)
+
+class Keypad
+  def initialize(button_labels)
+    @buttons = button_labels.each_with_index.flat_map do |y_labels, y|
+      y_labels.each_with_index.filter_map do |label, x|
+        next if label.nil?
+
+        Button.new(label:, position: Vector.new(x, y))
+      end
+    end
+  end
+
+  def remote_keys(label_from, label_to)
+    return [] if label_from == label_to
+
+    from = button_position(label_from)
+    to = button_position(label_to)
+    distance = to - from
+    return keys(distance) if distance.x.zero? || distance.y.zero?
+
+    x_distance = Vector.new(distance.x, 0)
+    y_distance = Vector.new(0, distance.y)
+
+    if valid_path?(from, from + x_distance, to)
+      keys(x_distance) + keys(y_distance)
+    elsif valid_path?(from, from + y_distance, to)
+      keys(y_distance) + keys(x_distance)
+    else
+      raise 'should not happen'
+    end
+  end
+
+  private
+
+  attr_reader :buttons
+
+  def button_position(label) = buttons_by_label.fetch(label).position
+
+  def keys(distance)
+    x_char = distance.x.negative? ? '<' : '>'
+    y_char = distance.y.negative? ? '^' : 'v'
+    ([x_char] * distance.x.abs) + ([y_char] * distance.y.abs)
+  end
+
+  def valid_path?(from, via, to)
+    positions =
+      Path.new([from, via]).fill_gaps.positions[1..] +
+      Path.new([via, to]).fill_gaps.positions[1..]
+    positions.all? { button_at?(_1) }
+  end
+
+  def index_by(array, &) = array.each_with_object({}) { |e, memo| memo[yield(e)] = e }
+  def buttons_by_label = @buttons_by_label ||= index_by(buttons, &:label)
+  def buttons_by_position = @buttons_by_position ||= index_by(buttons, &:position)
+  def button_at?(position) = buttons_by_position.key?(position)
+end
+
+class RequiredPresses
+  def initialize
+    @last_char = 'A'
+  end
+
+  def press_count(door_button)
+    # radiation remote
+    remote_keys(DOOR_KEYPAD, last_char, door_button)
+      # temperature remote
+      .flat_map { |button| remote_keys(REMOTE_KEYPAD, 'A', button) }
+      # my remote
+      .flat_map { |button| remote_keys(REMOTE_KEYPAD, 'A', button) }
+      .count
+  end
+
+  private
+
+  attr_reader :last_char
+
+  DOOR_KEYPAD = Keypad.new([%w[7 8 9], %w[4 5 6], %w[1 2 3], [nil, '0', 'A']])
+  REMOTE_KEYPAD = Keypad.new([[nil, '^', 'A'], %w[< v >]])
+
+  private_constant :DOOR_KEYPAD, :REMOTE_KEYPAD
+
+  def remote_keys(keypad, last_char, button)
+    [*keypad.remote_keys(last_char, button), 'A']
+  end
+end
+
+def code_presses(code)
+  presses = RequiredPresses.new
+  code.chars.sum { presses.press_count(_1) } + presses.press_count('A')
+end
+
+def numeric_part(code) = code.scan(/[0-9]/).join.to_i
+def complexity(code) = numeric_part(code) * code_presses(code)
+
+codes = ARGF.readlines(chomp: true)
+pp codes.map { [_1, numeric_part(_1)] }
+pp codes.map { [_1, code_presses(_1)] }
+pp codes.sum { complexity(_1) }
