@@ -60,18 +60,42 @@ class Keypad
   def button_at?(position) = buttons_by_position.key?(position)
 end
 
-class RequiredPresses
-  def initialize
-    @last_char = 'A'
+class KeySequence
+  def initialize(keypad)
+    @last_button = 'A'
+    @keypad = keypad
   end
 
-  def press_count(door_button)
-    # radiation remote
-    remote_keys(DOOR_KEYPAD, last_char, door_button)
-      # temperature remote
-      .flat_map { |button| remote_keys(REMOTE_KEYPAD, 'A', button) }
-      # my remote
-      .flat_map { |button| remote_keys(REMOTE_KEYPAD, 'A', button) }
+  def remote_keys(buttons)
+    buttons.flat_map { button_remote_keys(_1) }
+  end
+
+  private
+
+  def button_remote_keys(button)
+    result = keypad.remote_keys(last_button, button)
+    self.last_button = button
+    [*result, 'A']
+  end
+
+  attr_reader :keypad
+  attr_accessor :last_button
+end
+
+class RequiredPresses
+  def press_count(door_buttons)
+    radiation_remote = KeySequence.new(DOOR_KEYPAD)
+    temperature_remote = KeySequence.new(REMOTE_KEYPAD)
+    my_remote = KeySequence.new(REMOTE_KEYPAD)
+
+    door_buttons
+      # .tap { pp door_buttons: _1 }
+      .then { radiation_remote.remote_keys(_1) }
+      # .tap { pp radiation_remote: _1 }
+      .then { temperature_remote.remote_keys(_1) }
+      # .tap { pp temperature_remote: _1 }
+      .then { my_remote.remote_keys(_1) }
+      # .tap { pp my_remote: _1 }
       .count
   end
 
@@ -83,21 +107,15 @@ class RequiredPresses
   REMOTE_KEYPAD = Keypad.new([[nil, '^', 'A'], %w[< v >]])
 
   private_constant :DOOR_KEYPAD, :REMOTE_KEYPAD
-
-  def remote_keys(keypad, last_char, button)
-    [*keypad.remote_keys(last_char, button), 'A']
-  end
 end
 
 def code_presses(code)
-  presses = RequiredPresses.new
-  code.chars.sum { presses.press_count(_1) } + presses.press_count('A')
+  RequiredPresses.new.press_count(code.chars)
 end
 
 def numeric_part(code) = code.scan(/[0-9]/).join.to_i
 def complexity(code) = numeric_part(code) * code_presses(code)
 
 codes = ARGF.readlines(chomp: true)
-pp codes.map { [_1, numeric_part(_1)] }
-pp codes.map { [_1, code_presses(_1)] }
+# pp codes.map { [_1, code_presses(_1), numeric_part(_1)] }
 pp codes.sum { complexity(_1) }
