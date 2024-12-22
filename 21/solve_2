@@ -82,38 +82,73 @@ class KeySequence
   end
 
   def distance_to_last_button(button) = keypad.distance(last_button, button)
+  def state = [keypad.object_id, last_button]
+
+  def dup
+    result = self.class.new(keypad)
+    result.last_button = last_button
+    result
+  end
+
+  protected
+
+  attr_writer :last_button
 
   private
 
-  attr_reader :keypad
-  attr_accessor :last_button
+  attr_reader :keypad, :last_button
 end
 
 class RequiredPresses
   def initialize
-    my_remote = KeySequence.new(REMOTE_KEYPAD)
-    intermediate_remote_count = 1
-    intermediate_remotes = intermediate_remote_count.times.map { KeySequence.new(REMOTE_KEYPAD) }
-    door_remote = KeySequence.new(DOOR_KEYPAD)
-    @remotes = [door_remote, *intermediate_remotes, my_remote]
     @cache = {}
   end
 
   def press_count(door_buttons)
-    door_buttons.sum { press_count_button(_1) }
+    remotes = make_remotes
+    door_buttons.sum do |button|
+      remotes, buttons = press_cascade_memoized(remotes, button)
+      buttons.count
+    end
   end
 
   private
 
   attr_reader :last_char, :cache
-  attr_accessor :remotes
 
   DOOR_KEYPAD = Keypad.new([%w[7 8 9], %w[4 5 6], %w[1 2 3], [nil, '0', 'A']])
   REMOTE_KEYPAD = Keypad.new([[nil, '^', 'A'], %w[< v >]])
 
   private_constant :DOOR_KEYPAD, :REMOTE_KEYPAD
 
-  def press_count_button(button) = press_cascade(remotes, button).count
+  def make_remotes
+    my_remote = KeySequence.new(REMOTE_KEYPAD)
+    intermediate_remote_count = 25
+    intermediate_remotes = intermediate_remote_count.times.map { KeySequence.new(REMOTE_KEYPAD) }
+    door_remote = KeySequence.new(DOOR_KEYPAD)
+    [door_remote, *intermediate_remotes, my_remote]
+  end
+
+  def press_cascade_memoized(key_sequences, button)
+    key = [key_sequences.map(&:state), button]
+    cached = fetch_cache(key)
+
+    pp({ ks_length: key_sequences.length, miss: cached.nil?, cache_size: cache.size })
+    return cached unless cached.nil?
+
+    result_key_sequences, result_buttons = press_cascade(key_sequences, button)
+    result = [result_key_sequences.map(&:dup), result_buttons]
+
+    @cache[key] = result
+    fetch_cache(key)
+  end
+
+  def fetch_cache(key)
+    key_sequences, buttons = cache[key]
+    return nil if key_sequences.nil?
+
+    [key_sequences.map(&:dup), buttons]
+  end
 
   def press_cascade(key_sequences, button)
     first, downstream, *rest = key_sequences
@@ -125,9 +160,14 @@ class RequiredPresses
         options.min_by { |option_buttons| downstream.distance_to_last_button(option_buttons.first) }
       end
 
-    return buttons if key_sequences.length == 1
+    return [key_sequences, buttons] if key_sequences.length == 1
 
-    buttons.flat_map { press_cascade([downstream, *rest], _1) }
+    downstream_key_sequences = [downstream, *rest]
+    result = buttons.flat_map do |remote_button|
+      downstream_key_sequences, downstream_buttons = press_cascade_memoized(downstream_key_sequences, remote_button)
+      downstream_buttons
+    end
+    [[first, *downstream_key_sequences], result]
   end
 end
 
@@ -140,4 +180,7 @@ def complexity(code) = numeric_part(code) * code_presses(code)
 
 codes = ARGF.readlines(chomp: true)
 # pp codes.map { [_1, code_presses(_1), numeric_part(_1)] }
-pp codes.sum { complexity(_1) }
+pp codes.sum {
+  pp(code: _1)
+  complexity(_1)
+}
