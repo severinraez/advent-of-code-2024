@@ -102,16 +102,16 @@ end
 class RequiredPresses
   def initialize
     @cache = {}
-    @log_state = []
   end
 
   def press_count(door_buttons)
     door_remote, *robot_remotes = make_remotes
     remote_buttons = door_buttons.flat_map { press_one(door_remote, robot_remotes.first, _1) }
+    result = Result.empty(key_sequences: robot_remotes)
     remote_buttons.each_with_index.sum do |button, i|
-      puts "#{i}/#{remote_buttons.length}"
-      result = press_cascade_memoized(robot_remotes, button)
-      robot_remotes = result.key_sequences
+      # puts "#{i}/#{remote_buttons.length}"
+      result = result.combine_next(press_cascade_memoized(result.key_sequences, button))
+      pp(count: result.count, button_count: result.buttons.count)
       result.buttons.count
     end
   end
@@ -122,16 +122,20 @@ class RequiredPresses
 
   DOOR_KEYPAD = Keypad.new([%w[7 8 9], %w[4 5 6], %w[1 2 3], [nil, '0', 'A']])
   REMOTE_KEYPAD = Keypad.new([[nil, '^', 'A'], %w[< v >]])
-  CACHE_LENGTH = 10
-  INTERMEDIATE_REMOTE_COUNT = 1
+  CACHE_LENGTH = 3
+  INTERMEDIATE_REMOTE_COUNT = 5
 
-  Result = Data.define(:key_sequences, :buttons) do
+  Result = Data.define(:key_sequences, :buttons, :count) do
     class << self
-      def make(key_sequences:, buttons:) = new(key_sequences:, buttons:)
+      def make(key_sequences:, buttons:, count: 0) = new(key_sequences:, buttons:, count:)
+      def empty(key_sequences:) = make(key_sequences:, buttons: [])
     end
 
-    def dup = self.class.new(key_sequences: key_sequences.map(&:dup), buttons:)
+    def dup = with(key_sequences: key_sequences.map(&:dup))
+    def combine_next(next_result) = next_result.with(count: next_result.count + count)
   end
+
+  ButtonCount = Data.define(:value)
 
   private_constant :DOOR_KEYPAD, :REMOTE_KEYPAD, :CACHE_LENGTH, :INTERMEDIATE_REMOTE_COUNT
 
@@ -146,12 +150,13 @@ class RequiredPresses
     return press_cascade_split(key_sequences, button) if key_sequences.length > CACHE_LENGTH
 
     key = [key_sequences.map(&:state), last_downstream&.state, button]
-    cached = fetch_cache(key)&.dup
+    cached = cache[key]&.dup
     return cached unless cached.nil?
 
     result = press_cascade(key_sequences, button, last_downstream:)
-    @cache[key] = result.dup
-    fetch_cache(key).dup
+    with_count = result.with(count: result.buttons.count)
+    @cache[key] = with_count.dup
+    with_count.dup
   end
 
   def press_cascade_split(key_sequences, button)
@@ -160,15 +165,16 @@ class RequiredPresses
 
     result =
       press_cascade_memoized(cached, button, last_downstream: left.first)
+
+    left_result = Result.empty(key_sequences: left)
     buttons = result.buttons.flat_map do |downstream_button|
-      left_result = press_cascade_memoized(left, downstream_button)
-      left = left_result.key_sequences
+      left_result = left_result.combine_next(press_cascade_memoized(left_result.key_sequences, downstream_button))
       left_result.buttons
     end
-    Result.make(key_sequences: [*result.key_sequences, *left], buttons:)
+
+    Result.make(key_sequences: [*result.key_sequences, *left_result.key_sequences], buttons:)
   end
 
-  def update_log = print("\r" + @log_state.map(&:inspect).join(' / ') + (' ' * 20))
   def fetch_cache(key) = cache[key]
 
   def press_cascade(key_sequences, button, last_downstream: nil)
@@ -177,13 +183,16 @@ class RequiredPresses
 
     return Result.make(key_sequences:, buttons:) if key_sequences.length == 1
 
-    downstream_key_sequences = [downstream, *rest]
+    downstream_result = Result.empty(key_sequences: [downstream, *rest])
     result_buttons = buttons.flat_map do |remote_button|
-      downstream_result = press_cascade_memoized(downstream_key_sequences, remote_button, last_downstream:)
-      downstream_key_sequences = downstream_result.key_sequences
+      downstream_result = downstream_result.combine_next(
+        press_cascade_memoized(
+          downstream_result.key_sequences, remote_button, last_downstream:
+        )
+      )
       downstream_result.buttons
     end
-    Result.make(key_sequences: [first, *downstream_key_sequences], buttons: result_buttons)
+    Result.make(key_sequences: [first, *downstream_result.key_sequences], buttons: result_buttons)
   end
 
   def press_one(sequence, downstream, button)
