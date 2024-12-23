@@ -102,12 +102,16 @@ end
 class RequiredPresses
   def initialize
     @cache = {}
+    @log_state = []
   end
 
   def press_count(door_buttons)
-    remotes = make_remotes
-    door_buttons.sum do |button|
-      remotes, buttons = press_cascade_memoized(remotes, button)
+    door_remote, *robot_remotes = make_remotes
+    remote_buttons = door_buttons.flat_map { press_one(door_remote, robot_remotes.first, _1) }
+    remote_buttons.each_with_index.sum do |button, i|
+      puts "#{i}/#{remote_buttons.length}"
+      robot_remotes, buttons = press_cascade_memoized(robot_remotes, button)
+      # pp(result: { door_button: button, remote_buttons: buttons })
       buttons.count
     end
   end
@@ -118,29 +122,64 @@ class RequiredPresses
 
   DOOR_KEYPAD = Keypad.new([%w[7 8 9], %w[4 5 6], %w[1 2 3], [nil, '0', 'A']])
   REMOTE_KEYPAD = Keypad.new([[nil, '^', 'A'], %w[< v >]])
+  CACHE_LENGTH = 10
+  INTERMEDIATE_REMOTE_COUNT = 25
 
-  private_constant :DOOR_KEYPAD, :REMOTE_KEYPAD
+  private_constant :DOOR_KEYPAD, :REMOTE_KEYPAD, :CACHE_LENGTH, :INTERMEDIATE_REMOTE_COUNT
 
   def make_remotes
     my_remote = KeySequence.new(REMOTE_KEYPAD)
-    intermediate_remote_count = 25
-    intermediate_remotes = intermediate_remote_count.times.map { KeySequence.new(REMOTE_KEYPAD) }
+    intermediate_remotes = INTERMEDIATE_REMOTE_COUNT.times.map { KeySequence.new(REMOTE_KEYPAD) }
     door_remote = KeySequence.new(DOOR_KEYPAD)
     [door_remote, *intermediate_remotes, my_remote]
   end
 
-  def press_cascade_memoized(key_sequences, button)
-    key = [key_sequences.map(&:state), button]
+  def press_cascade_memoized(key_sequences, button, last_downstream: nil)
+    # pp(press_cascade_memoized: {
+    #      key_sequences_w_ld: [*key_sequences, last_downstream].compact,
+    #      button:,
+    #      last_downstream_nil: last_downstream.nil?
+    #    })
+
+    if ENV['UNCACHED'] != '1' && key_sequences.length > CACHE_LENGTH
+      @log_state[0] = { ks_length: key_sequences.length, result: :delegate }
+      cached = key_sequences[...CACHE_LENGTH]
+      left = key_sequences[CACHE_LENGTH...]
+      raise 'boom' if cached + left != key_sequences
+
+      cached, downstream_buttons =
+        press_cascade_memoized(cached, button, last_downstream: left.first)
+      result_buttons = downstream_buttons.flat_map do |downstream_button|
+        left, downstream_buttons = press_cascade_memoized(left, downstream_button)
+        downstream_buttons
+      end
+      return log_result([[*cached, *left], result_buttons])
+    end
+
+    key = [key_sequences.map(&:state), last_downstream&.state, button]
     cached = fetch_cache(key)
 
-    pp({ ks_length: key_sequences.length, miss: cached.nil?, cache_size: cache.size })
-    return cached unless cached.nil?
+    @log_state[0] = { ksl: key_sequences.length, miss: cached.nil?, cs: cache.size }
+    # pp(t: :cache_hit) unless cached.nil?
+    return log_result(cached) unless cached.nil?
 
-    result_key_sequences, result_buttons = press_cascade(key_sequences, button)
+    result_key_sequences, result_buttons = press_cascade(key_sequences, button, last_downstream:)
     result = [result_key_sequences.map(&:dup), result_buttons]
 
     @cache[key] = result
-    fetch_cache(key)
+    log_result(fetch_cache(key))
+  end
+
+  def update_log = print("\r" + @log_state.map(&:inspect).join(' / ') + (' ' * 20))
+
+  def log_result(result)
+    key_sequences, buttons = result
+    @log_state[1] = { ksl: key_sequences.length, bl: buttons.length }
+    @log_state[2] ||= { max_ksl: key_sequences.length, max_bl: buttons.length }
+    @log_state[2][:max_ksl] = [@log_state[2][:max_ksl], key_sequences.length].max
+    @log_state[2][:max_bl] = [@log_state[2][:max_bl], buttons.length].max
+    update_log
+    result
   end
 
   def fetch_cache(key)
@@ -150,24 +189,29 @@ class RequiredPresses
     [key_sequences.map(&:dup), buttons]
   end
 
-  def press_cascade(key_sequences, button)
+  def press_cascade(key_sequences, button, last_downstream: nil)
+    # pp(press_cascade: { key_sequences_w_ld: [*key_sequences, last_downstream].compact, button:,
+    #                     last_downstream_nil: last_downstream.nil? })
     first, downstream, *rest = key_sequences
-    options = first.remote_keys(button)
-    buttons =
-      if downstream.nil?
-        options.first
-      else
-        options.min_by { |option_buttons| downstream.distance_to_last_button(option_buttons.first) }
-      end
+    buttons = press_one(first, downstream || last_downstream, button)
 
     return [key_sequences, buttons] if key_sequences.length == 1
 
     downstream_key_sequences = [downstream, *rest]
     result = buttons.flat_map do |remote_button|
-      downstream_key_sequences, downstream_buttons = press_cascade_memoized(downstream_key_sequences, remote_button)
+      downstream_key_sequences, downstream_buttons =
+        press_cascade_memoized(downstream_key_sequences, remote_button, last_downstream:)
       downstream_buttons
     end
     [[first, *downstream_key_sequences], result]
+  end
+
+  def press_one(sequence, downstream, button)
+    # pp(press_one: { sequence:, downstream:, button: })
+    options = sequence.remote_keys(button)
+    return options.first if downstream.nil?
+
+    options.min_by { |option_buttons| downstream.distance_to_last_button(option_buttons.first) }
   end
 end
 
