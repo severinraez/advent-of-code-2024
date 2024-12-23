@@ -101,7 +101,8 @@ end
 
 class RequiredPresses
   def initialize
-    @cache = {}
+    @button_cache = {}
+    @count_cache = {}
   end
 
   def press_count(door_buttons)
@@ -117,11 +118,11 @@ class RequiredPresses
 
   private
 
-  attr_reader :last_char, :cache
+  attr_reader :last_char, :button_cache, :count_cache
 
   DOOR_KEYPAD = Keypad.new([%w[7 8 9], %w[4 5 6], %w[1 2 3], [nil, '0', 'A']])
   REMOTE_KEYPAD = Keypad.new([[nil, '^', 'A'], %w[< v >]])
-  CACHE_LENGTH = 10
+  CACHE_LENGTH = 5
   INTERMEDIATE_REMOTE_COUNT = 25
 
   Result = Data.define(:key_sequences, :buttons, :count) do
@@ -156,17 +157,21 @@ class RequiredPresses
   def press_cascade_memoized(key_sequences, button, last_downstream: nil)
     return press_cascade_split(key_sequences, button) if key_sequences.length > CACHE_LENGTH
 
-    key = [key_sequences.map(&:state), last_downstream&.state, button]
-    cached = cache[key]&.dup
+    key = [key_sequences.length, key_sequences.map(&:state), last_downstream&.state, button]
+    cached = button_cache[key]&.dup
     return cached unless cached.nil?
 
     result = press_cascade(key_sequences, button, last_downstream:)
     with_count = result.with(count: result.buttons.count)
-    @cache[key] = with_count.dup
+    button_cache[key] = with_count.dup
     with_count.dup
   end
 
   def press_cascade_split(key_sequences, button)
+    key = [key_sequences.length, key_sequences.map(&:state), button]
+    cached = count_cache[key]&.dup
+    return cached unless cached.nil?
+
     cached = key_sequences[...CACHE_LENGTH]
     left = key_sequences[CACHE_LENGTH...]
 
@@ -177,10 +182,10 @@ class RequiredPresses
       left_result = left_result.combine_next(press_cascade_memoized(left_result.key_sequences, downstream_button))
     end
 
-    result.combine_downstream(left_result)
+    combined = result.combine_downstream(left_result)
+    count_cache[key] = combined.dup
+    combined.dup
   end
-
-  def fetch_cache(key) = cache[key]
 
   def press_cascade(key_sequences, button, last_downstream: nil)
     first, downstream, *rest = key_sequences
