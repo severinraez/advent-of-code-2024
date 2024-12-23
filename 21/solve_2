@@ -111,9 +111,8 @@ class RequiredPresses
     remote_buttons.each_with_index do |button, i|
       # puts "#{i}/#{remote_buttons.length}"
       result = result.combine_next(press_cascade_memoized(result.key_sequences, button))
-      pp(count: result.count, button_count: result.buttons.count)
     end
-    result.buttons.count
+    result.count
   end
 
   private
@@ -122,8 +121,8 @@ class RequiredPresses
 
   DOOR_KEYPAD = Keypad.new([%w[7 8 9], %w[4 5 6], %w[1 2 3], [nil, '0', 'A']])
   REMOTE_KEYPAD = Keypad.new([[nil, '^', 'A'], %w[< v >]])
-  CACHE_LENGTH = 3
-  INTERMEDIATE_REMOTE_COUNT = 5
+  CACHE_LENGTH = 10
+  INTERMEDIATE_REMOTE_COUNT = 25
 
   Result = Data.define(:key_sequences, :buttons, :count) do
     class << self
@@ -139,7 +138,7 @@ class RequiredPresses
     end
 
     def combine_downstream(result)
-      result.with(key_sequences: key_sequences + result.key_sequences)
+      result.with(key_sequences: key_sequences + result.key_sequences, buttons: [])
     end
   end
 
