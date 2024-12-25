@@ -1,0 +1,42 @@
+#!/usr/bin/env ruby
+
+require_relative '../lib'
+
+class Schematic
+  Lock = Data.define(:pins)
+  Key = Data.define(:pins)
+
+  class << self
+    def parse(lines)
+      if lines.first.first == '#'
+        Lock.new(pins: Pins.new(lines))
+      else
+        Key.new(pins: Pins.new(lines.map(&:reverse)))
+      end
+    end
+  end
+
+  private
+
+  class Pins
+    def initialize(lines)
+      @lengths = lines.map do |line|
+        line.take_while { _1 == '#' }.length
+      end
+      @total_length = lines.first.length
+    end
+  end
+end
+
+schematic_lines =
+  ARGF
+  .readlines(chomp: true)
+  .slice_when { |before, _after| before == '' }
+  .map { _1.reject { |line| line == '' } }
+
+schematics =
+  schematic_lines
+  .map { _1.map(&:chars) }
+  .map(&:transpose)
+  .map { Schematic.parse(_1) }
+pp schematics
