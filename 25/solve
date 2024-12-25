@@ -3,8 +3,13 @@
 require_relative '../lib'
 
 class Schematic
-  Lock = Data.define(:pins)
-  Key = Data.define(:pins)
+  Lock = Data.define(:pins) do
+    def fits?(key) = pins.fit?(key.pins)
+    def inspect = "Lock(#{pins.inspect})"
+  end
+  Key = Data.define(:pins) do
+    def inspect = "Key(#{pins.inspect})"
+  end
 
   class << self
     def parse(lines)
@@ -20,11 +25,30 @@ class Schematic
 
   class Pins
     def initialize(lines)
+      my_base_row = 1
+      opposite_base_row = 1
       @lengths = lines.map do |line|
-        line.take_while { _1 == '#' }.length
+        line.take_while { _1 == '#' }.length - my_base_row
       end
-      @total_length = lines.first.length
+      @total_length = lines.first.length - my_base_row - opposite_base_row
     end
+
+    def fit?(opposite)
+      return false unless lengths_sum + opposite.lengths_sum <= maximum_space
+
+      lengths
+        .zip(opposite.lengths)
+        .all? { _1 + _2 <= total_length }
+    end
+
+    def inspect = "Pins(#{lengths.join(',')} / #{total_length})"
+
+    protected
+
+    def lengths_sum = @lengths_sum ||= lengths.sum
+    def maximum_space = lengths.count * total_length
+
+    attr_reader :lengths, :total_length
   end
 end
 
@@ -39,4 +63,11 @@ schematics =
   .map { _1.map(&:chars) }
   .map(&:transpose)
   .map { Schematic.parse(_1) }
-pp schematics
+
+locks, keys = schematics.partition { _1.is_a?(Schematic::Lock) }
+
+matches = keys.sum do |key|
+  locks.select { _1.fits?(key) }.length
+end
+
+puts matches
