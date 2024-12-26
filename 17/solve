@@ -1,0 +1,150 @@
+#!/usr/bin/env ruby
+
+require_relative '../lib'
+
+class Instruction
+  class << self
+    def run(opcode, operand, registers) = OPCODES.fetch(opcode).new(operand, registers).run
+  end
+
+  private
+
+  class Opcode
+    def initialize(operand, registers)
+      @operand = operand
+      @registers = registers
+    end
+
+    def run
+      effects = result
+      return effects if effects.include?(:ip_value)
+
+      { **effects, ip_delta: }
+    end
+
+    private
+
+    attr_reader :operand, :registers
+
+    def ip_delta = 2
+    def literal_operand = operand
+    def register(name) = registers.fetch(name)
+
+    def combo_operand
+      case operand
+      when 0, 1, 2, 3
+        operand
+      when 4
+        register(:a)
+      when 5
+        register(:b)
+      when 6
+        register(:c)
+      else
+        raise "Invalid combo operand: #{operand}"
+      end
+    end
+  end
+
+  class Adv < Opcode
+    def result = { a: register(:a) / (2**combo_operand).to_i }
+  end
+
+  class Bdv < Opcode
+    def result = { b: register(:a) / (2**combo_operand).to_i }
+  end
+
+  class Cdv < Opcode
+    def result = { c: register(:a) / (2**combo_operand).to_i }
+  end
+
+  class Bxl < Opcode
+    def result = { b: register(:b) ^ literal_operand }
+  end
+
+  class Bst < Opcode
+    def result = { b: combo_operand % 8 }
+  end
+
+  class Jnz < Opcode
+    def result
+      return {} if register(:a).zero?
+
+      { ip_value: literal_operand }
+    end
+  end
+
+  class Bxc < Opcode
+    def result = { b: register(:b) ^ register(:c) }
+  end
+
+  class Out < Opcode
+    def result = { output: combo_operand % 8 }
+  end
+
+  OPCODES = {
+    0 => Adv,
+    1 => Bxl,
+    2 => Bst,
+    3 => Jnz,
+    4 => Bxc,
+    5 => Out,
+    6 => Bdv,
+    7 => Cdv
+  }
+
+  private_constant :OPCODES, :Adv, :Bxl, :Bst, :Jnz, :Bxc, :Out, :Bdv, :Cdv
+end
+
+class Computer
+  def initialize(register_a, register_b, register_c)
+    @registers = { a: register_a, b: register_b, c: register_c }
+  end
+
+  def run(program)
+    self.instruction_pointer = 0
+    self.program = program
+    self.output = []
+    loop until next_instruction == :halt
+    output
+  end
+
+  private
+
+  def read_register(name) = registers.fetch(name)
+  def write_register(name, value) = registers[name] = value
+
+  def next_instruction
+    return :halt if instruction_pointer >= program.length
+
+    opcode, operand = program[instruction_pointer..instruction_pointer + 1]
+    effects = Instruction.run(opcode, operand, registers.dup)
+
+    %i[a b c].each { write_register(_1, effects[_1]) if effects.key?(_1) }
+    output << effects[:output] if effects.key?(:output)
+
+    if effects.key?(:ip_value)
+      self.instruction_pointer = effects[:ip_value]
+    else
+      self.instruction_pointer += effects.fetch(:ip_delta)
+    end
+  end
+
+  attr_accessor :instruction_pointer, :registers, :program, :output
+end
+
+properties =
+  ARGF
+  .readlines(chomp: true)
+  .reject { _1 == '' }
+  .map { _1.split(': ') }
+  .to_h
+
+program = properties.fetch('Program').split(',').map(&:to_i)
+computer = Computer.new(
+  properties.fetch('Register A').to_i,
+  properties.fetch('Register B').to_i,
+  properties.fetch('Register B').to_i
+)
+
+puts computer.run(program).join(',')
