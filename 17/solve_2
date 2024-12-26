@@ -97,22 +97,11 @@ class Instruction
 end
 
 class Computer
-  def initialize(register_a, register_b, register_c)
+  def initialize(register_a, register_b, register_c, program)
     @registers = { a: register_a, b: register_b, c: register_c }
-  end
-
-  def run(program)
     self.instruction_pointer = 0
     self.program = program
-    self.output = []
-    loop until next_instruction == :halt
-    output
   end
-
-  private
-
-  def read_register(name) = registers.fetch(name)
-  def write_register(name, value) = registers[name] = value
 
   def next_instruction
     return :halt if instruction_pointer >= program.length
@@ -121,16 +110,56 @@ class Computer
     effects = Instruction.run(opcode, operand, registers.dup)
 
     %i[a b c].each { write_register(_1, effects[_1]) if effects.key?(_1) }
-    output << effects[:output] if effects.key?(:output)
 
     if effects.key?(:ip_value)
       self.instruction_pointer = effects[:ip_value]
     else
       self.instruction_pointer += effects.fetch(:ip_delta)
     end
+
+    effects[:output]
   end
 
-  attr_accessor :instruction_pointer, :registers, :program, :output
+  def state = State.new(registers: registers.dup, instruction_pointer:)
+
+  private
+
+  attr_accessor :instruction_pointer, :registers, :program
+
+  State = Data.define(:registers, :instruction_pointer)
+  private_constant :State
+
+  def read_register(name) = registers.fetch(name)
+  def write_register(name, value) = registers[name] = value
+end
+
+def result(a_value, b_value, c_value, program, cache)
+  computer = Computer.new(
+    a_value,
+    b_value,
+    c_value,
+    program
+  )
+  run(computer, cache)
+end
+
+def run(computer, cache, output = [])
+  key = computer.state
+  cached = cache[key]
+  return output + cached unless cached.nil?
+
+  result = computer.next_instruction
+  downstream_output =
+    if result == :halt
+      []
+    elsif result.nil?
+      run(computer, cache)
+    else
+      [result] + run(computer, cache)
+    end
+
+  cache[key] = downstream_output
+  output + downstream_output
 end
 
 properties =
@@ -141,10 +170,23 @@ properties =
   .to_h
 
 program = properties.fetch('Program').split(',').map(&:to_i)
-computer = Computer.new(
-  properties.fetch('Register A').to_i,
-  properties.fetch('Register B').to_i,
-  properties.fetch('Register C').to_i
-)
+cache = {}
 
-puts computer.run(program).join(',')
+(0..).each do |a_value|
+  # pp(a_value:, c: cache.keys.count, u: cache.keys.uniq)
+  puts a_value
+
+  output = result(
+    a_value,
+    properties.fetch('Register B').to_i,
+    properties.fetch('Register C').to_i,
+    program,
+    cache
+  )
+
+  pp(output:, program:) if a_value > 100_000
+  if output == program
+    puts a_value
+    break
+  end
+end
