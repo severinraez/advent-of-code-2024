@@ -143,23 +143,27 @@ def result(a_value, b_value, c_value, program, cache)
   run(computer, cache)
 end
 
-def run(computer, cache, output = [])
+def run(computer, cache)
+  new_cache = {}
+  output = output_for(computer, cache, new_cache)
+  cache.merge!(new_cache)
+  output
+end
+
+def output_for(computer, cache, new_cache)
   key = computer.state
   cached = cache[key]
-  return output + cached unless cached.nil?
+  return cached unless cached.nil?
 
-  result = computer.next_instruction
-  downstream_output =
-    if result == :halt
+  output = computer.next_instruction
+  result =
+    if output == :halt
       []
-    elsif result.nil?
-      run(computer, cache)
     else
-      [result] + run(computer, cache)
+      [output].compact + output_for(computer, cache, new_cache)
     end
-
-  cache[key] = downstream_output
-  output + downstream_output
+  new_cache[key] = result # Outermost (first) state wins
+  result
 end
 
 properties =
@@ -173,8 +177,7 @@ program = properties.fetch('Program').split(',').map(&:to_i)
 cache = {}
 
 (0..).each do |a_value|
-  # pp(a_value:, c: cache.keys.count, u: cache.keys.uniq)
-  puts a_value
+  print "\r#{a_value}"
 
   output = result(
     a_value,
@@ -184,9 +187,9 @@ cache = {}
     cache
   )
 
-  pp(output:, program:) if a_value > 100_000
-  if output == program
-    puts a_value
-    break
-  end
+  next unless output == program
+
+  print "\r"
+  puts a_value
+  break
 end
