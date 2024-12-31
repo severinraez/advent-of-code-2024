@@ -47,15 +47,15 @@ class Instruction
   end
 
   class Adv < Opcode
-    def result = { a: register(:a) / (2**combo_operand).to_i }
+    def result = { a: (register(:a) / (2**combo_operand)).to_i }
   end
 
   class Bdv < Opcode
-    def result = { b: register(:a) / (2**combo_operand).to_i }
+    def result = { b: (register(:a) / (2**combo_operand)).to_i }
   end
 
   class Cdv < Opcode
-    def result = { c: register(:a) / (2**combo_operand).to_i }
+    def result = { c: (register(:a) / (2**combo_operand)).to_i }
   end
 
   class Bxl < Opcode
@@ -133,37 +133,102 @@ class Computer
   def write_register(name, value) = registers[name] = value
 end
 
-def result(a_value, b_value, c_value, program, cache)
-  computer = Computer.new(
-    a_value,
-    b_value,
-    c_value,
-    program
-  )
-  run(computer, cache)
-end
+class ProgramRun
+  def initialize(computer)
+    @computer = computer
+    @output = []
+    @halted = false
+  end
 
-def run(computer, cache)
-  new_cache = {}
-  output = output_for(computer, cache, new_cache)
-  cache.merge!(new_cache)
-  output
-end
+  def state = computer.state
 
-def output_for(computer, cache, new_cache)
-  key = computer.state
-  cached = cache[key]
-  return cached unless cached.nil?
+  def next_output
+    return :halt if halted?
 
-  output = computer.next_instruction
-  result =
-    if output == :halt
-      []
+    result = computer.next_instruction
+    case result
+    when nil
+      next_output
+    when :halt
+      self.halted = true
+      :halt
     else
-      [output].compact + output_for(computer, cache, new_cache)
+      output << result
+      result
     end
-  new_cache[key] = result # Outermost (first) state wins
-  result
+  end
+
+  def halted? = halted
+
+  attr_reader :output
+
+  private
+
+  attr_reader :computer
+  attr_accessor :halted
+end
+
+class Solution
+  def initialize(b_value, c_value, program)
+    @b_value = b_value
+    @c_value = c_value
+    @program = program
+    @cache = {}
+    @cache_hits = 0
+    @cache_misses = 0
+  end
+
+  def find_a_value
+    (0..).each do |a_value|
+      puts "#{a_value}, #{cache.size}, #{cache_hits}/#{cache_misses}" if (a_value % 1000).zero?
+      computer = Computer.new(a_value, b_value, c_value, program)
+      return a_value if solution?(ProgramRun.new(computer), program)
+    end
+  end
+
+  private
+
+  attr_accessor :cache_hits, :cache_misses
+  attr_reader :program, :cache, :b_value, :c_value
+
+  class RunPointer
+    def initialize(run)
+      @run = run
+      @output_index = run.output.length
+    end
+
+    attr_reader :run
+
+    def output = run.output[@output_index..] || []
+  end
+  private_constant :RunPointer
+
+  def solution?(run, expected_output)
+    # cached = cache[run.state]
+    # if cached.nil?
+    # self.cache_misses += 1
+    #  cache[run.state] = RunPointer.new(run)
+    search(run, expected_output)
+    # else
+    #  self.cache_hits += 1
+    #  output = cached.output
+    #  return false if output.length > expected_output.length
+    #  return false if expected_output[...output.length] != output
+    #  return true if expected_output.empty? && cached.run.halted?
+    #
+    #  search(cached.run, expected_output[output.length..])
+    # end
+  end
+
+  def search(run, expected_output)
+    output = run.next_output
+    return expected_output.empty? if output == :halt
+
+    first, *rest = expected_output
+    return false if output != first
+
+    solution?(run, rest)
+  end
 end
 
 properties =
@@ -173,23 +238,9 @@ properties =
   .map { _1.split(': ') }
   .to_h
 
-program = properties.fetch('Program').split(',').map(&:to_i)
-cache = {}
-
-(0..).each do |a_value|
-  print "\r#{a_value}"
-
-  output = result(
-    a_value,
-    properties.fetch('Register B').to_i,
-    properties.fetch('Register C').to_i,
-    program,
-    cache
-  )
-
-  next unless output == program
-
-  print "\r"
-  puts a_value
-  break
-end
+# Checked up to 16278000
+puts Solution.new(
+  properties.fetch('Register B').to_i,
+  properties.fetch('Register C').to_i,
+  properties.fetch('Program').split(',').map(&:to_i)
+).find_a_value
