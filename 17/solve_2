@@ -103,6 +103,25 @@ class Computer
     self.program = program
   end
 
+  def next_output
+    result = next_instruction
+    case result
+    when nil
+      next_output
+    when :halt
+      :halt
+    else
+      result
+    end
+  end
+
+  private
+
+  attr_accessor :instruction_pointer, :registers, :program
+
+  def read_register(name) = registers.fetch(name)
+  def write_register(name, value) = registers[name] = value
+
   def next_instruction
     return :halt if instruction_pointer >= program.length
 
@@ -119,53 +138,6 @@ class Computer
 
     effects[:output]
   end
-
-  def state = State.new(registers: registers.dup, instruction_pointer:)
-
-  private
-
-  attr_accessor :instruction_pointer, :registers, :program
-
-  State = Data.define(:registers, :instruction_pointer)
-  private_constant :State
-
-  def read_register(name) = registers.fetch(name)
-  def write_register(name, value) = registers[name] = value
-end
-
-class ProgramRun
-  def initialize(computer)
-    @computer = computer
-    @output = []
-    @halted = false
-  end
-
-  def state = computer.state
-
-  def next_output
-    return :halt if halted?
-
-    result = computer.next_instruction
-    case result
-    when nil
-      next_output
-    when :halt
-      self.halted = true
-      :halt
-    else
-      output << result
-      result
-    end
-  end
-
-  def halted? = halted
-
-  attr_reader :output
-
-  private
-
-  attr_reader :computer
-  attr_accessor :halted
 end
 
 class Solution
@@ -173,61 +145,29 @@ class Solution
     @b_value = b_value
     @c_value = c_value
     @program = program
-    @cache = {}
-    @cache_hits = 0
-    @cache_misses = 0
   end
 
   def find_a_value
     (0..).each do |a_value|
-      puts "#{a_value}, #{cache.size}, #{cache_hits}/#{cache_misses}" if (a_value % 1000).zero?
+      # puts "#{a_value}, #{cache.size}, #{cache_hits}/#{cache_misses}" if (a_value % 1000).zero?
+      puts a_value if (a_value % 1000).zero?
       computer = Computer.new(a_value, b_value, c_value, program)
-      return a_value if solution?(ProgramRun.new(computer), program)
+      return a_value if solution?(computer, program)
     end
   end
 
   private
 
-  attr_accessor :cache_hits, :cache_misses
-  attr_reader :program, :cache, :b_value, :c_value
+  attr_reader :program, :b_value, :c_value
 
-  class RunPointer
-    def initialize(run)
-      @run = run
-      @output_index = run.output.length
-    end
-
-    attr_reader :run
-
-    def output = run.output[@output_index..] || []
-  end
-  private_constant :RunPointer
-
-  def solution?(run, expected_output)
-    # cached = cache[run.state]
-    # if cached.nil?
-    # self.cache_misses += 1
-    #  cache[run.state] = RunPointer.new(run)
-    search(run, expected_output)
-    # else
-    #  self.cache_hits += 1
-    #  output = cached.output
-    #  return false if output.length > expected_output.length
-    #  return false if expected_output[...output.length] != output
-    #  return true if expected_output.empty? && cached.run.halted?
-    #
-    #  search(cached.run, expected_output[output.length..])
-    # end
-  end
-
-  def search(run, expected_output)
-    output = run.next_output
+  def solution?(computer, expected_output)
+    output = computer.next_output
     return expected_output.empty? if output == :halt
 
     first, *rest = expected_output
     return false if output != first
 
-    solution?(run, rest)
+    solution?(computer, rest)
   end
 end
 
@@ -239,6 +179,7 @@ properties =
   .to_h
 
 # Checked up to 16278000
+# Checked up to 58938000
 puts Solution.new(
   properties.fetch('Register B').to_i,
   properties.fetch('Register C').to_i,
